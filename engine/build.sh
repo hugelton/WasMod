@@ -14,7 +14,7 @@ emcc \
   -s ENVIRONMENT=web \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
-  -s EXPORTED_FUNCTIONS='["_malloc","_free","_wasmod_create_engine","_wasmod_destroy_engine","_wasmod_set_parameter","_wasmod_connect","_wasmod_disconnect","_wasmod_set_sample_rate","_wasmod_process_block"]' \
+  -s EXPORTED_FUNCTIONS='["_malloc","_free","_wasmod_create_engine","_wasmod_destroy_engine","_wasmod_set_parameter","_wasmod_connect","_wasmod_disconnect","_wasmod_get_connection_count","_wasmod_set_sample_rate","_wasmod_process_block"]' \
   -o "$OUT_DIR/wasmod-core.js"
 
 echo "Built $OUT_DIR/wasmod-core.js"

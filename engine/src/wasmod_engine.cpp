@@ -92,6 +92,13 @@ EMSCRIPTEN_KEEPALIVE void wasmod_disconnect(EngineState* engine, const char* /*c
   }
 }
 
+EMSCRIPTEN_KEEPALIVE int wasmod_get_connection_count(EngineState* engine) {
+  if (!engine) {
+    return -1;
+  }
+  return engine->speaker_connection_count;
+}
+
 EMSCRIPTEN_KEEPALIVE void wasmod_set_sample_rate(EngineState* engine, float sample_rate) {
   if (!engine || sample_rate <= 1000.0f) {
     return;

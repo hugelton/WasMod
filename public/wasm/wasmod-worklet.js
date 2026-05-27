@@ -20,10 +20,15 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
   }
 
   async init() {
+    console.log('[Wasmod Worklet] Initializing core module...');
     this.core = await createCoreModule();
+    console.log('[Wasmod Worklet] Core module loaded');
     this.engineHandle = this.core.ccall('wasmod_create_engine', 'number', [], []);
+    console.log('[Wasmod Worklet] Engine created, handle:', this.engineHandle);
     this.core.ccall('wasmod_set_sample_rate', null, ['number', 'number'], [this.engineHandle, sampleRate]);
+    console.log('[Wasmod Worklet] Sample rate set to', sampleRate);
     this.ready = true;
+    console.log('[Wasmod Worklet] Initialization complete');
   }
 
   ensureBuffer(frameCount) {
@@ -42,25 +47,30 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
 
   handleMessage(message) {
     if (message?.type === 'start') {
+      console.log('[Wasmod Worklet] Starting playback, playing = true');
       this.playing = true;
       return;
     }
 
     if (message?.type === 'stop') {
+      console.log('[Wasmod Worklet] Stopping playback, playing = false');
       this.playing = false;
       return;
     }
 
     if (message?.type === 'masterVolume') {
       this.masterVolume = message.value;
+      console.log('[Wasmod Worklet] Master volume set to', message.value);
       return;
     }
 
     if (!this.ready || !this.core || !this.engineHandle) {
+      console.warn('[Wasmod Worklet] Message received but not ready:', message?.type);
       return;
     }
 
     if (message?.type === 'setParameter') {
+      console.log('[Wasmod Worklet] setParameter:', message.moduleId, message.paramName, message.value);
       this.core.ccall(
         'wasmod_set_parameter',
         null,
@@ -71,6 +81,7 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
     }
 
     if (message?.type === 'connect') {
+      console.log('[Wasmod Worklet] connect:', message.from.moduleId, message.from.jackName, '->', message.to.moduleId, message.to.jackName);
       this.core.ccall(
         'wasmod_connect',
         null,
@@ -83,11 +94,16 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
           message.to.jackName
         ]
       );
+      const count = this.core.ccall('wasmod_get_connection_count', 'number', ['number'], [this.engineHandle]);
+      console.log('[Wasmod Worklet] Connection count after connect:', count);
       return;
     }
 
     if (message?.type === 'disconnect') {
+      console.log('[Wasmod Worklet] disconnect:', message.cableId);
       this.core.ccall('wasmod_disconnect', null, ['number', 'string'], [this.engineHandle, message.cableId]);
+      const count = this.core.ccall('wasmod_get_connection_count', 'number', ['number'], [this.engineHandle]);
+      console.log('[Wasmod Worklet] Connection count after disconnect:', count);
     }
   }
 
@@ -104,6 +120,9 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
     if (!this.ready || !this.playing || !this.core || !this.engineHandle) {
       left.fill(0);
       right.fill(0);
+      if (!this.ready) {
+        console.warn('[Wasmod Worklet] Process called but not ready');
+      }
       return true;
     }
 
