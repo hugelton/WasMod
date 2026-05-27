@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WasMod UI Mockup</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #fff;
+            user-select: none;
+        }
+
+        .rack-container {
+            background-image:
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 20px 20px, 100px 100px;
+            background-color: #222;
+        }
+
+        .wm__knob {
+            cursor: ns-resize;
+        }
+
+        .wm__input,
+        .wm__output {
+            cursor: crosshair;
+        }
+
+        .wm__input:hover .jack-ring,
+        .wm__output:hover .jack-ring {
+            stroke: #f39c12;
+        }
+
+        .wm__fader .fader-cap {
+            cursor: ns-resize;
+        }
+
+        .wm__button,
+        .wm__led_button {
+            cursor: pointer;
+        }
+
+        .wm__led {
+            transition: opacity 0.1s, filter 0.1s;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col font-sans">
+    <svg id="cable-layer" class="pointer-events-none fixed top-0 left-0 w-full h-full z-50"></svg>
+
+    <header class="bg-zinc-900 p-4 border-b border-zinc-700 flex justify-between items-center shadow-lg z-10">
+        <div>
+            <h1 class="text-xl font-bold tracking-wider text-orange-400">WasMod <span class="text-sm text-zinc-400 font-normal">Prototype</span></h1>
+            <p class="text-xs text-zinc-500 mt-1">SVG Attributes Auto-Detection System</p>
+        </div>
+        <div class="bg-black border border-green-900 p-2 rounded w-1/2 text-green-400 font-mono text-sm h-12 flex items-center overflow-hidden">
+            <span id="dsp-log">&gt; WASM連携待機中... モジュールのノブを操作してください。</span>
+        </div>
+    </header>
+
+    <main class="flex-1 rack-container p-8 flex gap-4 overflow-x-auto items-start">
+        <svg class="wasmod-module shadow-2xl drop-shadow-2xl" width="120" height="400" viewBox="0 0 120 400" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <g id="standard_knob">
+                    <circle cx="0" cy="2" r="18" fill="rgba(0,0,0,0.3)" />
+                    <circle cx="0" cy="0" r="18" fill="#2c3e50" stroke="#1a252f" stroke-width="1.5"/>
+                    <line x1="0" y1="0" x2="0" y2="-14" stroke="#ecf0f1" stroke-width="2.5" stroke-linecap="round"/>
+                </g>
+
+                <g id="standard_jack">
+                    <circle cx="0" cy="1" r="12" fill="rgba(0,0,0,0.5)" />
+                    <circle class="jack-ring" cx="0" cy="0" r="12" fill="#7f8c8d" stroke="#bdc3c7" stroke-width="2" transition="all 0.2s"/>
+                    <circle cx="0" cy="0" r="6" fill="#111" />
+                </g>
+            </defs>
+
+            <rect width="120" height="400" fill="#d5d8dc" rx="2" stroke="#95a5a6" stroke-width="1" />
+            <rect width="120" height="25" fill="#e74c3c" rx="2" />
+            <rect width="120" height="5" y="20" fill="#e74c3c" />
+            <text x="60" y="17" fill="#fff" font-family="Arial, sans-serif" font-weight="900" font-size="14" text-anchor="middle" letter-spacing="1">VCO</text>
+
+            <circle cx="10" cy="12" r="3" fill="#bdc3c7" />
+            <circle cx="110" cy="12" r="3" fill="#bdc3c7" />
+            <circle cx="10" cy="388" r="3" fill="#bdc3c7" />
+            <circle cx="110" cy="388" r="3" fill="#bdc3c7" />
+
+            <text x="60" y="55" fill="#333" font-family="Arial" font-weight="bold" font-size="10" text-anchor="middle">FREQ</text>
+            <g class="wm__knob" transform="translate(60, 85)" data-name="Frequency" data-min="20" data-max="20000" data-value="440">
+                <use href="#standard_knob" class="knob-graphic" />
+            </g>
+            <rect x="40" y="115" width="40" height="14" fill="#222" rx="2" />
+            <text class="param-display" data-target="Frequency" x="60" y="126" fill="#e67e22" font-family="monospace" font-size="10" text-anchor="middle">440.0</text>
+
+            <text x="60" y="155" fill="#333" font-family="Arial" font-weight="bold" font-size="10" text-anchor="middle">FINE</text>
+            <g class="wm__knob" transform="translate(60, 185)" data-name="FineTune" data-min="-1" data-max="1" data-value="0">
+                <use href="#standard_knob" class="knob-graphic" transform="scale(0.8)" />
+            </g>
+            <rect x="40" y="210" width="40" height="14" fill="#222" rx="2" />
+            <text class="param-display" data-target="FineTune" x="60" y="221" fill="#e67e22" font-family="monospace" font-size="10" text-anchor="middle">0.00</text>
+
+            <line x1="10" y1="240" x2="110" y2="240" stroke="#bdc3c7" stroke-width="1" />
+
+            <text x="30" y="260" fill="#333" font-family="Arial" font-weight="bold" font-size="9" text-anchor="middle">V/OCT</text>
+            <g class="wm__input" transform="translate(30, 280)" data-name="v_oct_in" data-bias="0">
+                <use href="#standard_jack" />
+            </g>
+
+            <text x="90" y="260" fill="#333" font-family="Arial" font-weight="bold" font-size="9" text-anchor="middle">FM</text>
+            <g class="wm__input" transform="translate(90, 280)" data-name="fm_in" data-bias="0">
+                <use href="#standard_jack" />
+            </g>
+
+            <rect x="40" y="315" width="40" height="60" fill="#34495e" rx="4" />
+            <text x="60" y="330" fill="#ecf0f1" font-family="Arial" font-weight="bold" font-size="10" text-anchor="middle">OUT</text>
+            <g class="wm__output" transform="translate(60, 355)" data-name="audio_out" data-min="-10" data-max="10">
+                <use href="#standard_jack" />
+            </g>
+        </svg>
+
+        <svg class="wasmod-module shadow-2xl drop-shadow-2xl" width="80" height="400" viewBox="0 0 80 400" xmlns="http://www.w3.org/2000/svg">
+            <rect width="80" height="400" fill="#d5d8dc" rx="2" stroke="#95a5a6" stroke-width="1" />
+            <rect width="80" height="25" fill="#2980b9" rx="2" />
+            <rect width="80" height="5" y="20" fill="#2980b9" />
+            <text x="40" y="17" fill="#fff" font-family="Arial, sans-serif" font-weight="900" font-size="14" text-anchor="middle" letter-spacing="1">VCA</text>
+
+            <circle cx="10" cy="12" r="3" fill="#bdc3c7" />
+            <circle cx="70" cy="12" r="3" fill="#bdc3c7" />
+
+            <text x="40" y="65" fill="#333" font-family="Arial" font-weight="bold" font-size="10" text-anchor="middle">LEVEL</text>
+            <g class="wm__knob" transform="translate(40, 95)" data-name="VCALevel" data-min="0" data-max="1" data-value="0.8">
+                <use href="#standard_knob" class="knob-graphic" />
+            </g>
+
+            <text x="40" y="260" fill="#333" font-family="Arial" font-weight="bold" font-size="9" text-anchor="middle">CV</text>
+            <g class="wm__input" transform="translate(40, 280)" data-name="cv_in" data-bias="0">
+                <use href="#standard_jack" />
+            </g>
+            <text x="40" y="330" fill="#333" font-family="Arial" font-weight="bold" font-size="9" text-anchor="middle">OUT</text>
+            <g class="wm__output" transform="translate(40, 350)" data-name="audio_out" data-min="-10" data-max="10">
+                <use href="#standard_jack" />
+            </g>
+        </svg>
+
+        <svg class="wasmod-module shadow-2xl drop-shadow-2xl" width="240" height="400" viewBox="0 0 240 400" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <g id="fader_track">
+                    <rect x="-4" y="0" width="8" height="100" fill="#111" rx="4" />
+                    <line x1="0" y1="5" x2="0" y2="95" stroke="#000" stroke-width="2" />
+                </g>
+                <g id="fader_cap">
+                    <rect x="-12" y="-8" width="24" height="16" fill="#ecf0f1" rx="2" stroke="#7f8c8d" />
+                    <line x1="-12" y1="0" x2="12" y2="0" stroke="#c0392b" stroke-width="2" />
+                </g>
+                <g id="standard_button">
+                    <rect x="-15" y="-10" width="30" height="20" fill="#34495e" rx="3" stroke="#2c3e50" class="btn-body" />
+                </g>
+                <radialGradient id="led_glow_red" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#ff4757" />
+                    <stop offset="100%" stop-color="#83101b" />
+                </radialGradient>
+                <radialGradient id="led_glow_green" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#2ed573" />
+                    <stop offset="100%" stop-color="#146c38" />
+                </radialGradient>
+                <g id="led_red"><circle cx="0" cy="0" r="5" fill="url(#led_glow_red)" stroke="#333" stroke-width="1" /></g>
+                <g id="led_green"><circle cx="0" cy="0" r="5" fill="url(#led_glow_green)" stroke="#333" stroke-width="1" /></g>
+            </defs>
+
+            <rect width="240" height="400" fill="#2c3e50" rx="2" stroke="#1a252f" stroke-width="1" />
+            <rect width="240" height="25" fill="#f1c40f" rx="2" />
+            <rect width="240" height="5" y="20" fill="#f1c40f" />
+            <text x="120" y="17" fill="#333" font-family="Arial, sans-serif" font-weight="900" font-size="14" text-anchor="middle" letter-spacing="1">CTRL &amp; UI</text>
+
+            <text x="40" y="55" fill="#ecf0f1" font-family="Arial" font-weight="bold" font-size="10" text-anchor="middle">LEVEL</text>
+            <g class="wm__fader" transform="translate(40, 70)" data-name="MasterLevel" data-min="0" data-max="1" data-value="0.7">
+                <use href="#fader_track" />
+                <use href="#fader_cap" class="fader-cap" y="30" />
+            </g>
+
+            <text x="140" y="55" fill="#ecf0f1" font-family="Arial" font-weight="bold" font-size="10" text-anchor="middle">OLED DISPLAY</text>
+            <g transform="translate(90, 65)">
+                <rect width="100" height="50" fill="#000" rx="2" stroke="#555" stroke-width="2"/>
+                <polyline points="0,25 20,10 40,40 60,15 80,35 100,25" fill="none" stroke="#00d2d3" stroke-width="1.5" />
+                <text x="5" y="12" fill="#00d2d3" font-family="monospace" font-size="8">WAVEFORM</text>
+            </g>
+
+            <text x="140" y="145" fill="#ecf0f1" font-family="Arial" font-weight="bold" font-size="10" text-anchor="middle">DOT MATRIX</text>
+            <g transform="translate(90, 155)">
+                <rect width="100" height="30" fill="#111" rx="1" />
+                <text x="50" y="20" fill="#ff4757" font-family="monospace" font-weight="bold" font-size="14" text-anchor="middle" letter-spacing="2">LFO 1</text>
+            </g>
+
+            <line x1="10" y1="210" x2="230" y2="210" stroke="#34495e" stroke-width="2" />
+
+            <text x="50" y="235" fill="#ecf0f1" font-family="Arial" font-size="9" text-anchor="middle">TRIG (Mom)</text>
+            <g class="wm__button" transform="translate(50, 255)" data-name="Trigger" data-type="momentary">
+                <use href="#standard_button" class="btn-graphic" />
+                <text x="0" y="3" fill="#fff" font-family="Arial" font-size="8" text-anchor="middle" class="pointer-events-none">GO</text>
+            </g>
+
+            <text x="120" y="235" fill="#ecf0f1" font-family="Arial" font-size="9" text-anchor="middle">MUTE (Tgl)</text>
+            <g class="wm__button" transform="translate(120, 255)" data-name="Mute" data-type="toggle" data-state="0">
+                <use href="#standard_button" class="btn-graphic" />
+                <text x="0" y="3" fill="#fff" font-family="Arial" font-size="8" text-anchor="middle" class="pointer-events-none">ON</text>
+            </g>
+
+            <text x="190" y="235" fill="#ecf0f1" font-family="Arial" font-size="9" text-anchor="middle">SYNC</text>
+            <g class="wm__led_button" transform="translate(190, 255)" data-name="SyncMode" data-type="toggle" data-state="1">
+                <use href="#standard_button" class="btn-graphic" fill="#222" />
+                <use href="#led_green" class="btn-led" x="0" y="0" opacity="1" />
+            </g>
+
+            <line x1="10" y1="290" x2="230" y2="290" stroke="#34495e" stroke-width="2" />
+            <text x="120" y="310" fill="#ecf0f1" font-family="Arial" font-size="9" text-anchor="middle">STATUS INDICATORS</text>
+
+            <g transform="translate(60, 340)">
+                <use href="#led_red" class="wm__led" data-name="Clip" opacity="0.2" />
+                <text x="0" y="15" fill="#7f8c8d" font-family="Arial" font-size="8" text-anchor="middle">CLIP</text>
+            </g>
+
+            <g transform="translate(120, 340)">
+                <use href="#led_green" class="wm__led" data-name="Gate" opacity="1" />
+                <text x="0" y="15" fill="#7f8c8d" font-family="Arial" font-size="8" text-anchor="middle">GATE</text>
+            </g>
+
+            <g transform="translate(180, 340)">
+                <circle cx="0" cy="0" r="5" fill="#0984e3" stroke="#333" class="wm__led" data-name="LFO" opacity="0.5" />
+                <text x="0" y="15" fill="#7f8c8d" font-family="Arial" font-size="8" text-anchor="middle">LFO</text>
+            </g>
+        </svg>
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            console.log("WasMod Engine Initialized.");
+
+            const dspLog = document.getElementById("dsp-log");
+            const displays = document.querySelectorAll(".param-display");
+
+            const knobs = document.querySelectorAll(".wm__knob");
+            knobs.forEach((knob) => {
+                const min = parseFloat(knob.dataset.min);
+                const max = parseFloat(knob.dataset.max);
+                let value = parseFloat(knob.dataset.value);
+                const paramName = knob.dataset.name;
+
+                const graphic = knob.querySelector(".knob-graphic");
+                if (!graphic) {
+                    return;
+                }
+
+                const minAngle = -135;
+                const maxAngle = 135;
+                const angleRange = maxAngle - minAngle;
+
+                const valueToAngle = (val) => minAngle + ((val - min) / (max - min) * angleRange);
+                const angleToValue = (angle) => Math.max(min, Math.min(max, min + ((angle - minAngle) / angleRange * (max - min))));
+
+                let currentAngle = valueToAngle(value);
+                graphic.setAttribute("transform", `rotate(${currentAngle})`);
+
+                let isDragging = false;
+                let startY = 0;
+
+                knob.addEventListener("mousedown", (event) => {
+                    isDragging = true;
+                    startY = event.clientY;
+                    document.body.style.cursor = "ns-resize";
+                });
+
+                window.addEventListener("mousemove", (event) => {
+                    if (!isDragging) {
+                        return;
+                    }
+
+                    const deltaY = startY - event.clientY;
+                    startY = event.clientY;
+                    currentAngle += deltaY * 1.5;
+
+                    if (currentAngle < minAngle) {
+                        currentAngle = minAngle;
+                    }
+                    if (currentAngle > maxAngle) {
+                        currentAngle = maxAngle;
+                    }
+
+                    graphic.setAttribute("transform", `rotate(${currentAngle})`);
+                    value = angleToValue(currentAngle);
+                    knob.dataset.value = value;
+                    sendToWASM(paramName, value);
+                });
+
+                window.addEventListener("mouseup", () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        document.body.style.cursor = "default";
+                    }
+                });
+            });
+
+            const faders = document.querySelectorAll(".wm__fader");
+            faders.forEach((fader) => {
+                const min = parseFloat(fader.dataset.min);
+                const max = parseFloat(fader.dataset.max);
+                let value = parseFloat(fader.dataset.value);
+                const paramName = fader.dataset.name;
+                const cap = fader.querySelector(".fader-cap");
+                if (!cap) {
+                    return;
+                }
+
+                const trackLength = 100;
+                const valueToY = (val) => trackLength - ((val - min) / (max - min) * trackLength);
+                const yToValue = (y) => Math.max(min, Math.min(max, min + ((trackLength - y) / trackLength * (max - min))));
+
+                let currentY = valueToY(value);
+                cap.setAttribute("y", currentY);
+
+                let isDragging = false;
+                let startMouseY = 0;
+
+                cap.addEventListener("mousedown", (event) => {
+                    isDragging = true;
+                    startMouseY = event.clientY;
+                    document.body.style.cursor = "ns-resize";
+                });
+
+                window.addEventListener("mousemove", (event) => {
+                    if (!isDragging) {
+                        return;
+                    }
+
+                    const deltaY = event.clientY - startMouseY;
+                    startMouseY = event.clientY;
+                    currentY += deltaY;
+
+                    if (currentY < 0) {
+                        currentY = 0;
+                    }
+                    if (currentY > trackLength) {
+                        currentY = trackLength;
+                    }
+
+                    cap.setAttribute("y", currentY);
+                    value = yToValue(currentY);
+                    fader.dataset.value = value;
+                    sendToWASM(paramName, value);
+                });
+
+                window.addEventListener("mouseup", () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        document.body.style.cursor = "default";
+                    }
+                });
+            });
+
+            const buttons = document.querySelectorAll(".wm__button, .wm__led_button");
+            buttons.forEach((btn) => {
+                const type = btn.dataset.type;
+                const paramName = btn.dataset.name;
+                const graphic = btn.querySelector(".btn-graphic");
+                const led = btn.querySelector(".btn-led");
+
+                const pressBtn = () => {
+                    if (graphic) {
+                        graphic.setAttribute("transform", "scale(0.95)");
+                    }
+                };
+                const releaseBtn = () => {
+                    if (graphic) {
+                        graphic.setAttribute("transform", "scale(1)");
+                    }
+                };
+
+                if (type === "momentary") {
+                    let isPressed = false;
+
+                    btn.addEventListener("mousedown", () => {
+                        isPressed = true;
+                        pressBtn();
+                        sendToWASM(paramName, 1);
+                    });
+
+                    window.addEventListener("mouseup", () => {
+                        if (!isPressed) {
+                            return;
+                        }
+                        isPressed = false;
+                        releaseBtn();
+                        sendToWASM(paramName, 0);
+                    });
+                } else if (type === "toggle") {
+                    let state = parseInt(btn.dataset.state || "0", 10);
+
+                    if (led) {
+                        led.setAttribute("opacity", state ? "1" : "0.2");
+                    }
+
+                    btn.addEventListener("mousedown", () => pressBtn());
+                    btn.addEventListener("mouseup", () => {
+                        releaseBtn();
+                        state = state ? 0 : 1;
+                        btn.dataset.state = state;
+
+                        if (led) {
+                            led.setAttribute("opacity", state ? "1" : "0.2");
+                        }
+                        if (!led && graphic) {
+                            graphic.setAttribute("fill", state ? "#e74c3c" : "#34495e");
+                        }
+
+                        sendToWASM(paramName, state);
+                    });
+                }
+            });
+
+            function sendToWASM(paramName, paramValue) {
+                const displayVal = paramValue > 100 ? Math.round(paramValue) : paramValue.toFixed(2);
+                dspLog.innerHTML = `<span class="text-zinc-500">&gt; WASM.setParameter</span>("<span class="text-white">${paramName}</span>", <span class="text-orange-400">${displayVal}</span>)`;
+
+                displays.forEach((display) => {
+                    if (display.dataset.target === paramName) {
+                        display.textContent = displayVal;
+                    }
+                });
+            }
+
+            const cableLayer = document.getElementById("cable-layer");
+            let isWiring = false;
+            let currentCable = null;
+            let startJack = null;
+
+            const CABLE_COLORS = ["#f39c12", "#e74c3c", "#3498db", "#2ecc71", "#9b59b6", "#1abc9c"];
+            let cableColorIdx = 0;
+
+            function getJackCenter(jackElement) {
+                const rect = jackElement.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+            }
+
+            function updateCablePath(cable, x1, y1, x2, y2) {
+                const tension = Math.max(50, Math.abs(x2 - x1) / 2);
+                const cp1x = x1;
+                const cp1y = y1 + tension;
+                const cp2x = x2;
+                const cp2y = y2 + tension;
+                cable.setAttribute("d", `M ${x1} ${y1} C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${x2} ${y2}`);
+            }
+
+            const jacks = document.querySelectorAll(".wm__input, .wm__output");
+            jacks.forEach((jack) => {
+                jack.addEventListener("mousedown", (event) => {
+                    event.stopPropagation();
+                    isWiring = true;
+                    startJack = jack;
+                    const startPos = getJackCenter(startJack);
+
+                    currentCable = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    currentCable.setAttribute("fill", "none");
+                    currentCable.setAttribute("stroke", CABLE_COLORS[cableColorIdx]);
+                    currentCable.setAttribute("stroke-width", "4");
+                    currentCable.setAttribute("stroke-linecap", "round");
+                    currentCable.style.filter = "drop-shadow(0px 4px 4px rgba(0,0,0,0.5))";
+
+                    cableLayer.appendChild(currentCable);
+                    updateCablePath(currentCable, startPos.x, startPos.y, event.clientX, event.clientY);
+                });
+
+                jack.addEventListener("mouseup", () => {
+                    if (isWiring && startJack !== jack) {
+                        const isStartOut = startJack.classList.contains("wm__output");
+                        const isEndIn = jack.classList.contains("wm__input");
+                        const isStartIn = startJack.classList.contains("wm__input");
+                        const isEndOut = jack.classList.contains("wm__output");
+
+                        if ((isStartOut && isEndIn) || (isStartIn && isEndOut)) {
+                            const outJack = isStartOut ? startJack : jack;
+                            const inJack = isStartIn ? startJack : jack;
+
+                            const startPos = getJackCenter(startJack);
+                            const endPos = getJackCenter(jack);
+                            updateCablePath(currentCable, startPos.x, startPos.y, endPos.x, endPos.y);
+
+                            const outName = outJack.dataset.name;
+                            const inName = inJack.dataset.name;
+                            const maxV = outJack.dataset.max || 10;
+                            const bias = inJack.dataset.bias || 0;
+
+                            dspLog.innerHTML = `<span class="text-zinc-500">&gt; WASM.connect</span>("<span class="text-white">${outName}</span>" <span class="text-xs text-zinc-400">(±${maxV}V)</span> &rarr; "<span class="text-white">${inName}</span>" <span class="text-xs text-zinc-400">(bias:${bias}V)</span>)`;
+
+                            currentCable = null;
+                            cableColorIdx = (cableColorIdx + 1) % CABLE_COLORS.length;
+                        } else if (currentCable) {
+                            currentCable.remove();
+                        }
+                    }
+                });
+            });
+
+            window.addEventListener("mousemove", (event) => {
+                if (isWiring && currentCable) {
+                    const startPos = getJackCenter(startJack);
+                    updateCablePath(currentCable, startPos.x, startPos.y, event.clientX, event.clientY);
+                }
+            });
+
+            window.addEventListener("mouseup", () => {
+                if (isWiring) {
+                    if (currentCable) {
+                        currentCable.remove();
+                    }
+                    isWiring = false;
+                    startJack = null;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

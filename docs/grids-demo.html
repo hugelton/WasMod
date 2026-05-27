@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WasMod Rack Grid System (Strict Eurorack Specs)</title>
+    <style>
+        /* 厳密なユーロラック寸法定義
+           1em = 1HP = 5.08mm とする。
+        */
+        :root {
+            /* 画面上のスケール調整（1emのピクセル数。拡大縮小はこれを変えるだけ） */
+            font-size: 20px; 
+            
+            /* 基本単位 */
+            --hp: 1em;                           /* 5.08mm */
+            --mm: calc(var(--hp) / 5.08);        /* 1mm */
+            
+            /* 高さ寸法 */
+            --u3-total-height: calc(133.35 * var(--mm)); /* 3U = 5.25in = 133.35mm */
+            --panel-height: calc(128.5 * var(--mm));     /* パネル高 = 128.5mm */
+            
+            /* ネジ穴寸法 (画像2準拠) */
+            --hole-diameter: calc(2.8 * var(--mm));      /* 穴径 = 3.2mm */
+            --hole-margin-y: calc(3.0 * var(--mm));      /* パネル上下端から穴中心 = 3.0mm */
+            --hole-margin-x: calc(7.5 * var(--mm));      /* パネル端から穴中心 = 7.5mm */
+            
+            /* レール位置計算 */
+            /* 3U全体(133.35)とパネル(128.5)の差分の半分が上下のギャップ */
+            --panel-gap-y: calc((var(--u3-total-height) - var(--panel-height)) / 2);
+            /* レールの穴中心のY座標（全体コンテナの上端から） */
+            --rail-hole-center-top: calc(var(--panel-gap-y) + var(--hole-margin-y));
+            --rail-hole-center-bottom: calc(var(--u3-total-height) - var(--panel-gap-y) - var(--hole-margin-y));
+        }
+
+        body {
+            background-color: #1a1a1a;
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* 3U ラックフレーム全体 */
+        .rack-frame {
+            position: relative;
+            height: var(--u3-total-height);
+            background-color: #333;
+            /* 背景の1HPグリッド線 */
+            background-image: linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: var(--hp) 100%;
+            border: 2px solid #111;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+        }
+
+        /* レールの帯 (アルミの色に修正し、幅を狭く) */
+        .rail {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: calc(5.5 * var(--mm)); /* レール幅を狭く (約5.5mm) */
+            background: linear-gradient(to bottom, #d9d9d9 0%, #b3b3b3 50%, #d9d9d9 100%);
+            border-top: 1px solid #888;
+            border-bottom: 1px solid #888;
+        }
+        .rail.top {
+            top: calc(var(--rail-hole-center-top) - (2.75 * var(--mm)));
+        }
+        .rail.bottom {
+            top: calc(var(--rail-hole-center-bottom) - (2.75 * var(--mm)));
+        }
+
+        /* レールの連続したネジ穴 */
+        .rail-holes {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            /* 1HP(1em)間隔で円を描画 */
+            background-image: radial-gradient(
+                circle at calc(var(--hp) / 2) 50%, 
+                #111 calc(var(--hole-diameter) / 2), 
+                transparent calc(var(--hole-diameter) / 2 + 0.5px)
+            );
+            background-size: var(--hp) 100%;
+        }
+
+        /* モジュール配置エリア */
+        .modules-container {
+            position: absolute;
+            top: var(--panel-gap-y);
+            left: 0;
+            height: var(--panel-height);
+            width: 100%;
+            /* display: flex; を削除して絶対配置コンテナにする */
+        }
+
+        /* モジュールパネル */
+        .module {
+            height: var(--panel-height);
+            background-color: #999; /* 画像1のパネル色 */
+            border-right: 1px solid #777;
+            border-left: 1px solid #ccc;
+            box-sizing: border-box;
+            position: absolute;
+            left: 0; /* 初期位置 */
+            
+            /* ホバーまで半透明にする */
+            opacity: 0.5;
+            transition: opacity 0.2s ease, left 0.1s ease-out;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .module:hover {
+            opacity: 1;
+        }
+
+        .module:active {
+            cursor: grabbing;
+        }
+
+        /* モジュールの幅定義 (N * HP) */
+        .hp-4  { width: calc(4 * var(--hp)); }
+        .hp-8  { width: calc(8 * var(--hp)); }
+        .hp-12 { width: calc(12 * var(--hp)); }
+        .hp-16 { width: calc(16 * var(--hp)); }
+        .hp-20 { width: calc(20 * var(--hp)); background-color: #3a8a4f; /* 画像1のPCB色参考 */ }
+
+        /* パネル上のネジ (穴位置 3.0mm, 7.5mm に配置) */
+        .screw {
+            position: absolute;
+            width: var(--hole-diameter);
+            height: var(--hole-diameter);
+            background-color: #555;
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px #222, 0 1px 1px rgba(255,255,255,0.5);
+            /* 中心を基準座標に合わせるための調整 */
+            transform: translate(-50%, -50%);
+        }
+
+        /* 4隅のネジ位置指定 */
+        .screw.top { top: var(--hole-margin-y); }
+        .screw.bottom { bottom: calc(var(--hole-margin-y) - var(--hole-diameter)); } /* bottomは要素の下端基準なので微調整 */
+        .screw.bottom-fixed { top: calc(var(--panel-height) - var(--hole-margin-y)); } /* topから計算する方が確実 */
+
+        .screw.left { left: var(--hole-margin-x); }
+        .screw.right { right: calc(var(--hole-margin-x) - var(--hole-diameter)); } /* 右端からの計算 */
+        .screw.right-fixed { left: calc(100% - var(--hole-margin-x)); } /* 左端から100%で計算する方が確実 */
+
+        /* テキストラベル (確認用) */
+        .label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            color: #111;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 横幅 60HP のラックフレーム -->
+    <div class="rack-frame" style="width: calc(60 * var(--hp));">
+        
+        <!-- 上下のマウントレール -->
+        <div class="rail top">
+            <div class="rail-holes"></div>
+        </div>
+        <div class="rail bottom">
+            <div class="rail-holes"></div>
+        </div>
+
+        <!-- モジュール群 -->
+        <div class="modules-container">
+            
+            <!-- 8HP モジュール -->
+            <div class="module hp-8" style="left: 0em;">
+                <div class="screw top left"></div>
+                <div class="screw bottom-fixed left"></div>
+                <div class="label">8HP</div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const module = document.querySelector('.module');
+            const container = document.querySelector('.modules-container');
+            
+            let isDragging = false;
+            let offsetHp = 0;
+            
+            // ラック全体60HP - モジュール8HP
+            const rackHp = 60;
+            const moduleHp = 8;
+            const maxHp = rackHp - moduleHp;
+
+            const getHpInPixels = () => {
+                return parseFloat(getComputedStyle(document.documentElement).fontSize);
+            };
+
+            module.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                const hpPx = getHpInPixels();
+                const containerRect = container.getBoundingClientRect();
+                const mouseXInContainer = e.clientX - containerRect.left;
+                
+                // 現在のモジュールのleft (HP単位) を取得
+                const currentLeftHp = parseFloat(module.style.left) || 0;
+                
+                // マウス位置がモジュールの左端から何HPずれているかを記録
+                offsetHp = (mouseXInContainer / hpPx) - currentLeftHp;
+                
+                // ドラッグ中はCSSトランジションをオフにする
+                module.style.transition = 'none';
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                
+                const hpPx = getHpInPixels();
+                const containerRect = container.getBoundingClientRect();
+                const mouseXInContainer = e.clientX - containerRect.left;
+                
+                // 新しい位置 (HP) を計算し、1HP単位でスナップ (四捨五入)
+                let targetHp = (mouseXInContainer / hpPx) - offsetHp;
+                let snappedHp = Math.round(targetHp);
+                
+                // ラックの外に出ないように制限
+                if (snappedHp < 0) snappedHp = 0;
+                if (snappedHp > maxHp) snappedHp = maxHp;
+                
+                module.style.left = `${snappedHp}em`;
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    // ドラッグ終了時にトランジションを戻す
+                    module.style.transition = 'opacity 0.2s ease, left 0.1s ease-out';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
+
