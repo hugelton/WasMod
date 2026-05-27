@@ -149,6 +149,12 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
     if (this.meterCounter >= 4) {
       this.port.postMessage({ type: 'meter', value: peak });
       this.meterCounter = 0;
+
+      // Log connection count periodically (every ~4th meter update = ~320ms at 128 frames)
+      if (this.meterCounter === 0) {
+        const count = this.core.ccall('wasmod_get_connection_count', 'number', ['number'], [this.engineHandle]);
+        console.log('[Wasmod Worklet] Connection count:', count, 'Peak:', peak);
+      }
     }
 
     return true;
