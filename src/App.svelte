@@ -268,13 +268,16 @@
   }
 
   function handleModuleTap(id: string) {
-    if (selectedId === id) {
-      actionMenuId = actionMenuId === id ? null : id;
-      tick().then(updateMenuPosition);
-      return;
-    }
     selectedId = id;
     actionMenuId = null;
+  }
+
+  function handleModuleContextMenu(id: string, clientX: number, clientY: number) {
+    selectedId = id;
+    actionMenuId = id;
+    tick().then(() => {
+      updateMenuPosition();
+    });
   }
 
   function clearSelection() {
@@ -482,6 +485,8 @@
           {canPlaceNewModule}
           on:canvasTap={clearSelection}
           on:moduleTap={(event) => handleModuleTap(event.detail.id)}
+          on:moduleContextMenu={(event) =>
+            handleModuleContextMenu(event.detail.id, event.detail.clientX, event.detail.clientY)}
           on:parameterChange={(event) =>
             handleParameterChange(event.detail.moduleId, event.detail.paramName, event.detail.value)}
           on:cableConnect={(event) => handleCableConnect(event.detail)}

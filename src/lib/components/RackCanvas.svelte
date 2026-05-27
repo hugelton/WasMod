@@ -40,6 +40,7 @@
   const dispatch = createEventDispatcher<{
     canvasTap: void;
     moduleTap: { id: string };
+    moduleContextMenu: { id: string; clientX: number; clientY: number };
     moveModule: { id: string; rackIndex: number; xHp: number };
     addModuleDrop: { kind: ModuleKind; rackIndex: number; xHp: number };
     parameterChange: { moduleId: string; paramName: string; value: number };
@@ -209,6 +210,12 @@
       return;
     }
     dispatch('moduleTap', { id });
+  }
+
+  function onModuleContextMenu(id: string, event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    dispatch('moduleContextMenu', { id, clientX: event.clientX, clientY: event.clientY });
   }
 
   function mmToEm(mm: number) {
@@ -497,6 +504,7 @@
             style={`width: calc(${module.hp} * var(--hp)); left: ${module.xHp}em;`}
             on:pointerdown={(event) => beginModuleDrag(module, event)}
             on:click={() => onModuleClick(module.id)}
+            on:contextmenu={(event) => onModuleContextMenu(module.id, event)}
             on:keydown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
