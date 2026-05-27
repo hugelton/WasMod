@@ -46,19 +46,27 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
       let currentAngle = valueToAngle(value);
       let isDragging = false;
       let startY = 0;
+      let activePointerId: number | null = null;
 
       graphic.setAttribute('transform', `rotate(${currentAngle})`);
       updateDisplays(paramName, value);
 
-      const onMouseDown = (event: MouseEvent) => {
+      const onPointerDown = (event: PointerEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
         isDragging = true;
         startY = event.clientY;
+        activePointerId = event.pointerId;
+        knob.setPointerCapture?.(event.pointerId);
       };
 
-      const onMouseMove = (event: MouseEvent) => {
-        if (!isDragging) {
+      const onPointerMove = (event: PointerEvent) => {
+        if (!isDragging || activePointerId !== event.pointerId) {
           return;
         }
+
+        event.preventDefault();
+        event.stopPropagation();
 
         const deltaY = startY - event.clientY;
         startY = event.clientY;
@@ -71,18 +79,27 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         currentOptions.onParameterChange(paramName, value);
       };
 
-      const onMouseUp = () => {
+      const onPointerUp = (event: PointerEvent) => {
+        if (activePointerId !== event.pointerId) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
         isDragging = false;
+        activePointerId = null;
+        knob.releasePointerCapture?.(event.pointerId);
       };
 
-      knob.addEventListener('mousedown', onMouseDown);
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
+      knob.addEventListener('pointerdown', onPointerDown);
+      knob.addEventListener('pointermove', onPointerMove);
+      knob.addEventListener('pointerup', onPointerUp);
+      knob.addEventListener('pointercancel', onPointerUp);
 
       cleanups.push(() => {
-        knob.removeEventListener('mousedown', onMouseDown);
-        window.removeEventListener('mousemove', onMouseMove);
-        window.removeEventListener('mouseup', onMouseUp);
+        knob.removeEventListener('pointerdown', onPointerDown);
+        knob.removeEventListener('pointermove', onPointerMove);
+        knob.removeEventListener('pointerup', onPointerUp);
+        knob.removeEventListener('pointercancel', onPointerUp);
       });
     });
   }
@@ -107,19 +124,27 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
       let currentY = valueToY(value);
       let isDragging = false;
       let startMouseY = 0;
+      let activePointerId: number | null = null;
 
       cap.setAttribute('y', String(currentY));
       updateDisplays(paramName, value);
 
-      const onMouseDown = (event: MouseEvent) => {
+      const onPointerDown = (event: PointerEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
         isDragging = true;
         startMouseY = event.clientY;
+        activePointerId = event.pointerId;
+        cap.setPointerCapture?.(event.pointerId);
       };
 
-      const onMouseMove = (event: MouseEvent) => {
-        if (!isDragging) {
+      const onPointerMove = (event: PointerEvent) => {
+        if (!isDragging || activePointerId !== event.pointerId) {
           return;
         }
+
+        event.preventDefault();
+        event.stopPropagation();
 
         const deltaY = event.clientY - startMouseY;
         startMouseY = event.clientY;
@@ -132,18 +157,27 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         currentOptions.onParameterChange(paramName, value);
       };
 
-      const onMouseUp = () => {
+      const onPointerUp = (event: PointerEvent) => {
+        if (activePointerId !== event.pointerId) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
         isDragging = false;
+        activePointerId = null;
+        cap.releasePointerCapture?.(event.pointerId);
       };
 
-      cap.addEventListener('mousedown', onMouseDown);
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
+      cap.addEventListener('pointerdown', onPointerDown);
+      cap.addEventListener('pointermove', onPointerMove);
+      cap.addEventListener('pointerup', onPointerUp);
+      cap.addEventListener('pointercancel', onPointerUp);
 
       cleanups.push(() => {
-        cap.removeEventListener('mousedown', onMouseDown);
-        window.removeEventListener('mousemove', onMouseMove);
-        window.removeEventListener('mouseup', onMouseUp);
+        cap.removeEventListener('pointerdown', onPointerDown);
+        cap.removeEventListener('pointermove', onPointerMove);
+        cap.removeEventListener('pointerup', onPointerUp);
+        cap.removeEventListener('pointercancel', onPointerUp);
       });
     });
   }
@@ -181,7 +215,9 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         }
       };
 
-      const onMouseDown = () => {
+      const onPointerDown = (event: PointerEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
         isPressed = true;
         press();
         if (type === 'momentary') {
@@ -189,10 +225,13 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         }
       };
 
-      const onMouseUp = () => {
+      const onPointerUp = (event: PointerEvent) => {
         if (!isPressed) {
           return;
         }
+
+        event.preventDefault();
+        event.stopPropagation();
 
         isPressed = false;
         release();
@@ -208,12 +247,14 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         currentOptions.onParameterChange(paramName, state);
       };
 
-      button.addEventListener('mousedown', onMouseDown);
-      window.addEventListener('mouseup', onMouseUp);
+      button.addEventListener('pointerdown', onPointerDown);
+      button.addEventListener('pointerup', onPointerUp);
+      button.addEventListener('pointercancel', onPointerUp);
 
       cleanups.push(() => {
-        button.removeEventListener('mousedown', onMouseDown);
-        window.removeEventListener('mouseup', onMouseUp);
+        button.removeEventListener('pointerdown', onPointerDown);
+        button.removeEventListener('pointerup', onPointerUp);
+        button.removeEventListener('pointercancel', onPointerUp);
       });
     });
   }

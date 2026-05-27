@@ -16,9 +16,11 @@ WasMod の核は 3 つです。
 - `60HP` 幅の Eurorack 風ラック
 - SVG モジュールの配置、移動、選択
 - ジャック間の最小パッチケーブル
+- モジュール移動中も追従するケーブル描画
+- ケーブル状態はアプリ上位で保持
 - `AudioWorklet + WASM` による最小再生経路
 - ヘッダーの `Play / Stop / Master / 3色メーター`
-- テスト用 `Junction` と `Sine VCO`
+- テスト用 `Junction`、`Sine VCO`、`Speaker`
 
 ## SVG Attributes Auto-Detection System
 
@@ -55,6 +57,18 @@ WasMod の核は 3 つです。
   - `cv_in`
   - `audio_out`
   - WASM でサイン波を生成する最小音源
+- `Speaker`
+  - 4HP
+  - `audio_in`
+  - 出音確認用の最小出力モジュール
+
+最小の音出し手順:
+
+1. `Sine VCO` を置く
+2. `Speaker` を置く
+3. `VCO OUT -> Speaker IN` を結線する
+4. ヘッダーの `Play` を押す
+5. `Pitch` と `Master` を調整する
 
 ## Project Structure
 
@@ -70,6 +84,15 @@ engine/
 docs/
   wasmod-ui-mockup.html
 ```
+
+現時点のフロントエンド責務:
+
+- `App.svelte`
+  - モジュール配列、ケーブル配列、選択状態、オーディオエンジンを保持
+- `RackCanvas.svelte`
+  - ラック描画、モジュール移動、結線 UI を担当
+- `autoBindModule.ts`
+  - SVG の `wm__*` をスキャンしてノブやボタンを結び付ける
 
 将来的なモジュール投稿構造の想定:
 
@@ -106,4 +129,10 @@ Emscripten がある環境なら:
 ./engine/build.sh
 ```
 
-生成された `public/wasm/wasmod-engine.js` が存在すれば、フロントエンドはそちらのローダーを優先して使う想定です。
+生成された `public/wasm/wasmod-engine.js` が存在すれば、フロントエンドはそちらのローダーを優先して使います。
+
+## Current Constraints
+
+- いまの DSP は最小検証用で、`Speaker` への接続数だけを見て音を開閉しています
+- `Junction` は UI/結線テスト用で、まだ受動マルチの信号分配 DSP はありません
+- 本格的なモジュール投稿モデル `modules/<maker>/<module>/module.yml` はまだこれからです

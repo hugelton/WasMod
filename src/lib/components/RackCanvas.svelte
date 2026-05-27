@@ -2,11 +2,8 @@
   import { createEventDispatcher } from 'svelte';
   import { moduleCatalog } from '../moduleCatalog';
   import { moduleJacks } from '../moduleSpecs';
-  import BlankPanel from '../modules/BlankPanel.svelte';
-  import JunctionModule from '../modules/JunctionModule.svelte';
-  import SineVcoModule from '../modules/SineVcoModule.svelte';
-  import SpeakerModule from '../modules/SpeakerModule.svelte';
-  import type { CableEndpoint, ModuleKind, PatchCable, RackModuleInstance } from '../types';
+  import ModuleRenderer from './ModuleRenderer.svelte';
+  import type { CableEndpoint, ModuleKind, PatchCable, PendingCableConnection, RackModuleInstance } from '../types';
 
   type PaletteGhost = {
     kind: ModuleKind;
@@ -18,8 +15,6 @@
   type DragState = {
     id: string;
     pointerId: number;
-    sourceRackIndex: number;
-    sourceXHp: number;
     targetRackIndex: number;
     previewHp: number;
     offsetHp: number;
@@ -48,7 +43,7 @@
     moveModule: { id: string; rackIndex: number; xHp: number };
     addModuleDrop: { kind: ModuleKind; rackIndex: number; xHp: number };
     parameterChange: { moduleId: string; paramName: string; value: number };
-    cableConnect: { cable: PatchCable };
+    cableConnect: PendingCableConnection;
   }>();
 
   export let modules: RackModuleInstance[] = [];
@@ -57,18 +52,41 @@
   export let hpUnitPx = 20;
   export let selectedId: string | null = null;
   export let paletteGhost: PaletteGhost = null;
+  export let cables: PatchCable[] = [];
+  export let nextCableColor = '#f4f4f5';
   export let canPlaceModule: (moduleId: string, rackIndex: number, nextHp: number) => boolean;
   export let canPlaceNewModule: (kind: ModuleKind, rackIndex: number, nextHp: number) => boolean;
 
   let rackRoot: HTMLDivElement;
   let dragState: DragState = null;
   let modulesByRack: RackModuleInstance[][] = [];
-  let cables: PatchCable[] = [];
   let wiringState: WiringState = null;
   let clickGuard: ClickGuard = null;
-  let cableColorIndex = 0;
 
-  const CABLE_COLORS = ['#f4f4f5', '#ff7a59', '#5ac8fa', '#30d158', '#ffd60a', '#bf5af2'];
+  function sameEndpoint(a: CableEndpoint, b: CableEndpoint) {
+    return a.moduleId === b.moduleId && a.jackName === b.jackName && a.role === b.role;
+  }
+
+  function canConnectEndpoints(from: CableEndpoint, to: CableEndpoint) {
+    if (sameEndpoint(from, to)) {
+      return false;
+    }
+
+    const pair = [from.role, to.role];
+    if (pair.includes('both')) {
+      return true;
+    }
+
+    return pair.includes('input') && pair.includes('output');
+  }
+
+  function cableExists(from: CableEndpoint, to: CableEndpoint) {
+    return cables.some(
+      (cable) =>
+        (sameEndpoint(cable.from, from) && sameEndpoint(cable.to, to)) ||
+        (sameEndpoint(cable.from, to) && sameEndpoint(cable.to, from))
+    );
+  }
 
   function hpInPixels() {
     return parseFloat(getComputedStyle(document.documentElement).fontSize);
@@ -138,8 +156,6 @@
     dragState = {
       id: module.id,
       pointerId: event.pointerId,
-      sourceRackIndex: module.rackIndex,
-      sourceXHp: module.xHp,
       targetRackIndex: module.rackIndex,
       previewHp: module.xHp,
       offsetHp: mouseXInContainer / hpInPixels() - module.xHp
@@ -200,10 +216,29 @@
   }
 
   function getJackCenter(endpoint: CableEndpoint) {
-    const jackElement = rackRoot?.querySelector<HTMLElement>(
+    const module = modules.find((entry) => entry.id === endpoint.moduleId);
+    if (!module || !rackRoot) {
+      return null;
+    }
+
+    const jackSpec = moduleJacks[module.kind]?.find((jack) => jack.name === endpoint.jackName);
+    if (jackSpec) {
+      const hpPx = hpInPixels();
+      const mmPx = hpPx / 5.08;
+      const panelHeightPx = 128.5 * mmPx;
+      const moduleXHp = dragState?.id === module.id ? dragState.previewHp : module.xHp;
+      const moduleRackIndex = dragState?.id === module.id ? dragState.targetRackIndex : module.rackIndex;
+
+      return {
+        x: moduleXHp * hpPx + jackSpec.xMm * mmPx,
+        y: moduleRackIndex * panelHeightPx + jackSpec.yMm * mmPx
+      };
+    }
+
+    const jackElement = rackRoot.querySelector<HTMLElement>(
       `[data-jack-module-id="${endpoint.moduleId}"][data-jack-name="${endpoint.jackName}"]`
     );
-    if (!jackElement || !rackRoot) {
+    if (!jackElement) {
       return null;
     }
 
@@ -264,31 +299,25 @@
       role: (targetElement.dataset.jackRole as CableEndpoint['role']) ?? 'both'
     };
 
-    const sameJack =
-      endpoint.moduleId === wiringState.from.moduleId && endpoint.jackName === wiringState.from.jackName;
-
-    if (!sameJack && endpoint.moduleId && endpoint.jackName) {
-      const cable: PatchCable = {
-        id: `cable-${wiringState.from.moduleId}-${wiringState.from.jackName}-${endpoint.moduleId}-${endpoint.jackName}-${Date.now()}`,
-        color: CABLE_COLORS[cableColorIndex],
+    if (
+      endpoint.moduleId &&
+      endpoint.jackName &&
+      canConnectEndpoints(wiringState.from, endpoint) &&
+      !cableExists(wiringState.from, endpoint)
+    ) {
+      dispatch('cableConnect', {
         from: wiringState.from,
         to: endpoint
-      };
-
-      cables = [
-        ...cables,
-        cable
-      ];
-      cableColorIndex = (cableColorIndex + 1) % CABLE_COLORS.length;
-      dispatch('cableConnect', { cable });
+      });
     }
 
     wiringState = null;
   }
 
-  $: modulesByRack = Array.from({ length: rackCount }, (_, index) =>
-    modules.filter((module) => module.rackIndex === index)
-  );
+  $: modulesByRack = modules.reduce<RackModuleInstance[][]>((racks, module) => {
+    racks[module.rackIndex]?.push(module);
+    return racks;
+  }, Array.from({ length: rackCount }, () => []));
 
   $: palettePreview = getPalettePreview();
 </script>
@@ -432,7 +461,7 @@
         />
         <path
           d={activePath}
-          stroke={CABLE_COLORS[cableColorIndex]}
+          stroke={nextCableColor}
           stroke-width={cableStrokeWidth()}
           fill="none"
           stroke-linecap="round"
@@ -475,18 +504,12 @@
               }
             }}
           >
-            {#if module.kind === 'junction4'}
-              <JunctionModule />
-            {:else if module.kind === 'vco4'}
-              <SineVcoModule
-                onParameterChange={(paramName, value) =>
-                  dispatch('parameterChange', { moduleId: module.id, paramName, value })}
-              />
-            {:else if module.kind === 'speaker4'}
-              <SpeakerModule />
-            {:else}
-              <BlankPanel hp={module.hp} />
-            {/if}
+            <ModuleRenderer
+              kind={module.kind}
+              hp={module.hp}
+              onParameterChange={(paramName, value) =>
+                dispatch('parameterChange', { moduleId: module.id, paramName, value })}
+            />
 
             {#if moduleJacks[module.kind]}
               {#each moduleJacks[module.kind] as jack}
@@ -517,17 +540,17 @@
               class="module ghost-module {canPlaceModule(dragged.id, rackIndex, dragState.previewHp) ? '' : 'invalid'}"
               style={`width: calc(${dragged.hp} * var(--hp)); left: ${dragState.previewHp}em;`}
             >
-              <BlankPanel hp={dragged.hp} />
+              <ModuleRenderer kind={dragged.kind} hp={dragged.hp} interactive={false} />
             </div>
           {/if}
         {/if}
 
-        {#if palettePreview?.rackIndex === rackIndex}
+        {#if palettePreview?.rackIndex === rackIndex && paletteGhost}
           <div
             class="module ghost-module {palettePreview.valid ? '' : 'invalid'}"
             style={`width: calc(${palettePreview.hp} * var(--hp)); left: ${palettePreview.xHp}em;`}
           >
-            <BlankPanel hp={palettePreview.hp} />
+            <ModuleRenderer kind={paletteGhost.kind} hp={palettePreview.hp} interactive={false} />
           </div>
         {/if}
       </div>

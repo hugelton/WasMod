@@ -1,13 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import RackCanvas from './lib/components/RackCanvas.svelte';
-  import BlankPanel from './lib/modules/BlankPanel.svelte';
-  import JunctionModule from './lib/modules/JunctionModule.svelte';
-  import SineVcoModule from './lib/modules/SineVcoModule.svelte';
-  import SpeakerModule from './lib/modules/SpeakerModule.svelte';
+  import ModuleRenderer from './lib/components/ModuleRenderer.svelte';
   import { createWasmodEngine } from './lib/engine/createEngine';
   import { moduleCatalog, moduleOrder, RACK_TOTAL_HP } from './lib/moduleCatalog';
-  import type { ModuleKind, PatchCable, RackModuleInstance, WasmodEngine } from './lib/types';
+  import type { ModuleKind, PatchCable, PendingCableConnection, RackModuleInstance, WasmodEngine } from './lib/types';
 
   type PaletteGhost = {
     kind: ModuleKind;
@@ -18,6 +15,7 @@
   } | null;
 
   let modules: RackModuleInstance[] = [];
+  let cables: PatchCable[] = [];
   let selectedId: string | null = null;
   let actionMenuId: string | null = null;
   let instanceCounter = 1;
@@ -44,9 +42,11 @@
     frameWidth: 0,
     frameHeight: 0
   };
+  const CABLE_COLORS = ['#f4f4f5', '#ff7a59', '#5ac8fa', '#30d158', '#ffd60a', '#bf5af2'];
 
   onMount(() => {
     modules = [];
+    cables = [];
     addModuleAt('vco4', 0, 0);
     addModuleAt('speaker4', 0, 6);
     addModuleAt('junction4', 0, 12);
@@ -283,6 +283,30 @@
     menuPosition = null;
   }
 
+  function nextCableColor() {
+    return CABLE_COLORS[cables.length % CABLE_COLORS.length];
+  }
+
+  function sameEndpoint(a: PatchCable['from'], b: PatchCable['from']) {
+    return a.moduleId === b.moduleId && a.jackName === b.jackName && a.role === b.role;
+  }
+
+  function cablesForModule(moduleId: string) {
+    return cables.filter((cable) => cable.from.moduleId === moduleId || cable.to.moduleId === moduleId);
+  }
+
+  function removeCables(targetCables: PatchCable[]) {
+    if (targetCables.length === 0) {
+      return;
+    }
+
+    const cableIds = new Set(targetCables.map((cable) => cable.id));
+    cables = cables.filter((cable) => !cableIds.has(cable.id));
+    targetCables.forEach((cable) => {
+      engine?.disconnect(cable.id);
+    });
+  }
+
   function duplicateSelected() {
     if (!selectedId) {
       return;
@@ -308,6 +332,7 @@
       return;
     }
 
+    removeCables(cablesForModule(selectedId));
     modules = modules.filter((entry) => entry.id !== selectedId);
     selectedId = null;
     actionMenuId = null;
@@ -344,7 +369,25 @@
     engine?.setParameter(moduleId, paramName, value);
   }
 
-  function handleCableConnect(cable: PatchCable) {
+  function handleCableConnect(connection: PendingCableConnection) {
+    const duplicate = cables.some(
+      (cable) =>
+        (sameEndpoint(cable.from, connection.from) && sameEndpoint(cable.to, connection.to)) ||
+        (sameEndpoint(cable.from, connection.to) && sameEndpoint(cable.to, connection.from))
+    );
+
+    if (duplicate) {
+      return;
+    }
+
+    const cable: PatchCable = {
+      id: `cable-${connection.from.moduleId}-${connection.from.jackName}-${connection.to.moduleId}-${connection.to.jackName}-${Date.now()}`,
+      color: nextCableColor(),
+      from: connection.from,
+      to: connection.to
+    };
+
+    cables = [...cables, cable];
     engine?.connect(cable.from, cable.to);
   }
 
@@ -428,18 +471,20 @@
       <div bind:this={canvasScrollEl} class="canvas-scroll" on:scroll={updateMinimap}>
         <RackCanvas
           {modules}
+          {cables}
           rackCount={8}
           totalHp={RACK_TOTAL_HP}
           hpUnitPx={rackUnitPx}
           {selectedId}
           {paletteGhost}
+          nextCableColor={nextCableColor()}
           {canPlaceModule}
           {canPlaceNewModule}
           on:canvasTap={clearSelection}
           on:moduleTap={(event) => handleModuleTap(event.detail.id)}
           on:parameterChange={(event) =>
             handleParameterChange(event.detail.moduleId, event.detail.paramName, event.detail.value)}
-          on:cableConnect={(event) => handleCableConnect(event.detail.cable)}
+          on:cableConnect={(event) => handleCableConnect(event.detail)}
           on:moveModule={(event) => {
             modules = modules.map((entry) =>
               entry.id === event.detail.id
@@ -514,15 +559,7 @@
             on:pointerdown={(event) => beginPaletteDrag(kind, event)}
           >
             <div class="palette-preview">
-              {#if kind === 'junction4'}
-                <JunctionModule />
-              {:else if kind === 'vco4'}
-                <SineVcoModule interactive={false} onParameterChange={() => {}} />
-              {:else if kind === 'speaker4'}
-                <SpeakerModule />
-              {:else}
-                <BlankPanel hp={module.hp} />
-              {/if}
+              <ModuleRenderer kind={kind} hp={module.hp} interactive={false} />
             </div>
             <div class="palette-meta">
               <span class="palette-name">{module.name}</span>
@@ -545,15 +582,11 @@
       class="palette-drag-ghost"
       style={`left:${paletteGhost.x}px; top:${paletteGhost.y}px; width: calc(${moduleCatalog[paletteGhost.kind].hp} * var(--hp)); height: var(--panel-height);`}
     >
-      {#if paletteGhost.kind === 'junction4'}
-        <JunctionModule />
-      {:else if paletteGhost.kind === 'vco4'}
-        <SineVcoModule interactive={false} onParameterChange={() => {}} />
-      {:else if paletteGhost.kind === 'speaker4'}
-        <SpeakerModule />
-      {:else}
-        <BlankPanel hp={moduleCatalog[paletteGhost.kind].hp} />
-      {/if}
+      <ModuleRenderer
+        kind={paletteGhost.kind}
+        hp={moduleCatalog[paletteGhost.kind].hp}
+        interactive={false}
+      />
     </div>
   {/if}
 

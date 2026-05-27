@@ -2,9 +2,9 @@
 
 `engine/src/wasmod_engine.cpp` は WasMod の最初の WebAssembly DSP 土台です。
 
-- `vco-*` インスタンスに対して `Frequency` / `FineTune`
-- `vca-*` インスタンスに対して `Level`
-- `wasmod_process_block(...)` は `VCO -> VCA -> mono output` の最小オーディオチェーン
+- `vco-*` インスタンスに対して `Pitch`
+- `speaker-*` への結線数を見て出音を開閉
+- `wasmod_process_block(...)` は `Sine VCO -> Speaker` の最小オーディオチェーン
 
 将来的にはここに、
 
@@ -25,6 +25,6 @@ Emscripten が入っている前提で:
 生成先:
 
 ```text
-public/wasm/wasmod-engine.js
-public/wasm/wasmod-engine.wasm
+public/wasm/wasmod-core.js
+public/wasm/wasmod-core.wasm
 ```

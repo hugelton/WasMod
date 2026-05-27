@@ -59,6 +59,7 @@ export async function createWasmodWasmEngine() {
       };
     },
     disconnect(cableId) {
+      postMessage({ type: 'disconnect', cableId });
       return {
         text: `> WASM.disconnect("${cableId}")`,
         level: 'warning'

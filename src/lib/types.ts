@@ -32,6 +32,11 @@ export interface PatchCable {
   to: CableEndpoint;
 }
 
+export interface PendingCableConnection {
+  from: CableEndpoint;
+  to: CableEndpoint;
+}
+
 export interface EngineLogEntry {
   text: string;
   level?: 'info' | 'success' | 'warning';

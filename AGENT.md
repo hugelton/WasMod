@@ -44,12 +44,17 @@
 - Context menus must render in the topmost app overlay layer, not inside module DOM.
 - Selecting a module uses a flat red outline, not glow.
 - Dragging a module or cable must not also trigger module click/context actions.
+- SVG controls use pointer events and must stop propagation so module drag does not steal knob/fader gestures.
 
 ## Cable Rules
 
 - Cables are drawn above the rack and modules.
 - Cable colors should rotate through a fixed palette automatically.
 - Cables should feel visually substantial, not hairline-thin.
+- Cable state belongs to top-level app state, not only the rack view component.
+- Removing a module must also remove any attached cables.
+- Existing cables should visually track module drag previews.
+- Input-input and output-output connections are invalid unless one side is `both`.
 
 ## Audio Rules
 
@@ -60,8 +65,10 @@
   - `Master volume`
   - `green/yellow/red` output indicators
 - The frontend should prefer the real WASM engine when available and fall back to mock only when needed.
+- Connect and disconnect behavior must stay symmetric so patch edits cannot leave stale audio routes behind.
 
 ## Current Test Modules
 
 - `Junction`: 4HP passive multiple with six vertically centered jacks at `17.78mm` pitch.
 - `Sine VCO`: minimal 4HP oscillator with `Pitch`, `cv_in`, and `audio_out`.
+- `Speaker`: minimal 4HP mono output sink with `audio_in`.

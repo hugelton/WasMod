@@ -21,7 +21,7 @@ struct VcoState {
 struct EngineState {
   float sample_rate = kSampleRate;
   VcoState vco;
-  bool speaker_connected = false;
+  int speaker_connection_count = 0;
 };
 
 float nextSine(EngineState& engine) {
@@ -78,7 +78,17 @@ EMSCRIPTEN_KEEPALIVE void wasmod_connect(EngineState* engine, const char* from_m
     (fromModule.find("speaker") != std::string_view::npos && fromJack == "audio_in");
 
   if (speakerTarget) {
-    engine->speaker_connected = true;
+    engine->speaker_connection_count += 1;
+  }
+}
+
+EMSCRIPTEN_KEEPALIVE void wasmod_disconnect(EngineState* engine, const char* /*cable_id*/) {
+  if (!engine) {
+    return;
+  }
+
+  if (engine->speaker_connection_count > 0) {
+    engine->speaker_connection_count -= 1;
   }
 }
 
@@ -95,7 +105,7 @@ EMSCRIPTEN_KEEPALIVE void wasmod_process_block(EngineState* engine, float* outpu
   }
 
   for (int frame = 0; frame < frame_count; ++frame) {
-    const float vcoSample = engine->speaker_connected ? nextSine(*engine) : 0.0f;
+    const float vcoSample = engine->speaker_connection_count > 0 ? nextSine(*engine) : 0.0f;
     output[frame] = vcoSample * 0.18f;
   }
 }

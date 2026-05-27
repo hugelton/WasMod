@@ -83,6 +83,11 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
           message.to.jackName
         ]
       );
+      return;
+    }
+
+    if (message?.type === 'disconnect') {
+      this.core.ccall('wasmod_disconnect', null, ['number', 'string'], [this.engineHandle, message.cableId]);
     }
   }
 
