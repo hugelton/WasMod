@@ -50,6 +50,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
 
       graphic.setAttribute('transform', `rotate(${currentAngle})`);
       updateDisplays(paramName, value);
+      currentOptions.onParameterChange(paramName, value);
 
       const onPointerDown = (event: PointerEvent) => {
         event.preventDefault();
@@ -128,6 +129,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
 
       cap.setAttribute('y', String(currentY));
       updateDisplays(paramName, value);
+      currentOptions.onParameterChange(paramName, value);
 
       const onPointerDown = (event: PointerEvent) => {
         event.preventDefault();
@@ -202,6 +204,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
       };
 
       syncVisual();
+      currentOptions.onParameterChange(paramName, state);
 
       const press = () => {
         if (graphic) {
