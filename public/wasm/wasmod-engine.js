@@ -52,7 +52,10 @@ export async function createWasmodWasmEngine() {
     backend: 'wasm',
     setParameter(moduleId, paramName, value) {
       console.log(`[WasMod Engine] setParameter: ${moduleId}.${paramName} = ${formatValue(value)}`);
-      postMessage({ type: 'setParameter', moduleId, paramName, value });
+      // Ensure audio is ready before sending parameters
+      ensureAudio().then(() => {
+        postMessage({ type: 'setParameter', moduleId, paramName, value });
+      });
 
       return {
         text: `> WASM.setParameter("${moduleId}.${paramName}", ${formatValue(value)})`,
@@ -61,7 +64,10 @@ export async function createWasmodWasmEngine() {
     },
     connect(from, to) {
       console.log(`[WasMod Engine] connect: ${from.moduleId}.${from.jackName} -> ${to.moduleId}.${to.jackName}`);
-      postMessage({ type: 'connect', from, to });
+      // Ensure audio is ready before connecting
+      ensureAudio().then(() => {
+        postMessage({ type: 'connect', from, to });
+      });
 
       return {
         text: `> WASM.connect("${from.moduleId}.${from.jackName}" -> "${to.moduleId}.${to.jackName}")`,
