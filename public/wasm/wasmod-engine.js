@@ -8,6 +8,7 @@ export async function createWasmodWasmEngine() {
   await createCoreModule();
   let audioContext = null;
   let workletNode = null;
+  let workletReady = false;
   let meterListeners = new Set();
   let masterVolume = 0.8;
 
@@ -32,12 +33,31 @@ export async function createWasmodWasmEngine() {
     workletNode.connect(audioContext.destination);
     console.log('[WasMod Engine] Worklet connected to destination');
     workletNode.port.onmessage = (event) => {
-      if (event.data?.type === 'meter') {
+      if (event.data?.type === 'ready') {
+        console.log('[WasMod Engine] Worklet is ready');
+        workletReady = true;
+      } else if (event.data?.type === 'meter') {
         meterListeners.forEach((listener) => listener(event.data.value));
       }
     };
     workletNode.port.postMessage({ type: 'masterVolume', value: masterVolume });
     console.log('[WasMod Engine] Audio setup complete');
+    // Wait for worklet to be ready
+    await new Promise(resolve => {
+      if (workletReady) {
+        resolve();
+      } else {
+        const checkReady = () => {
+          if (workletReady) {
+            resolve();
+          } else {
+            setTimeout(checkReady, 10);
+          }
+        };
+        checkReady();
+      }
+    });
+    console.log('[WasMod Engine] Worklet ready confirmed');
   };
 
   const postMessage = (message) => {

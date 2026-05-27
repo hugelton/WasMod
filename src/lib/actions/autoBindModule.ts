@@ -96,16 +96,16 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         knob.releasePointerCapture?.(event.pointerId);
       };
 
-      knob.addEventListener('pointerdown', onPointerDown);
-      knob.addEventListener('pointermove', onPointerMove);
-      knob.addEventListener('pointerup', onPointerUp);
-      knob.addEventListener('pointercancel', onPointerUp);
+      knob.addEventListener('pointerdown', onPointerDown, { capture: true });
+      knob.addEventListener('pointermove', onPointerMove, { capture: true });
+      knob.addEventListener('pointerup', onPointerUp, { capture: true });
+      knob.addEventListener('pointercancel', onPointerUp, { capture: true });
 
       cleanups.push(() => {
-        knob.removeEventListener('pointerdown', onPointerDown);
-        knob.removeEventListener('pointermove', onPointerMove);
-        knob.removeEventListener('pointerup', onPointerUp);
-        knob.removeEventListener('pointercancel', onPointerUp);
+        knob.removeEventListener('pointerdown', onPointerDown, { capture: true });
+        knob.removeEventListener('pointermove', onPointerMove, { capture: true });
+        knob.removeEventListener('pointerup', onPointerUp, { capture: true });
+        knob.removeEventListener('pointercancel', onPointerUp, { capture: true });
       });
     });
   }
@@ -177,16 +177,16 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         cap.releasePointerCapture?.(event.pointerId);
       };
 
-      cap.addEventListener('pointerdown', onPointerDown);
-      cap.addEventListener('pointermove', onPointerMove);
-      cap.addEventListener('pointerup', onPointerUp);
-      cap.addEventListener('pointercancel', onPointerUp);
+      cap.addEventListener('pointerdown', onPointerDown, { capture: true });
+      cap.addEventListener('pointermove', onPointerMove, { capture: true });
+      cap.addEventListener('pointerup', onPointerUp, { capture: true });
+      cap.addEventListener('pointercancel', onPointerUp, { capture: true });
 
       cleanups.push(() => {
-        cap.removeEventListener('pointerdown', onPointerDown);
-        cap.removeEventListener('pointermove', onPointerMove);
-        cap.removeEventListener('pointerup', onPointerUp);
-        cap.removeEventListener('pointercancel', onPointerUp);
+        cap.removeEventListener('pointerdown', onPointerDown, { capture: true });
+        cap.removeEventListener('pointermove', onPointerMove, { capture: true });
+        cap.removeEventListener('pointerup', onPointerUp, { capture: true });
+        cap.removeEventListener('pointercancel', onPointerUp, { capture: true });
       });
     });
   }
@@ -259,14 +259,14 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         currentOptions.onParameterChange(paramName, state);
       };
 
-      button.addEventListener('pointerdown', onPointerDown);
-      button.addEventListener('pointerup', onPointerUp);
-      button.addEventListener('pointercancel', onPointerUp);
+      button.addEventListener('pointerdown', onPointerDown, { capture: true });
+      button.addEventListener('pointerup', onPointerUp, { capture: true });
+      button.addEventListener('pointercancel', onPointerUp, { capture: true });
 
       cleanups.push(() => {
-        button.removeEventListener('pointerdown', onPointerDown);
-        button.removeEventListener('pointerup', onPointerUp);
-        button.removeEventListener('pointercancel', onPointerUp);
+        button.removeEventListener('pointerdown', onPointerDown, { capture: true });
+        button.removeEventListener('pointerup', onPointerUp, { capture: true });
+        button.removeEventListener('pointercancel', onPointerUp, { capture: true });
       });
     });
   }

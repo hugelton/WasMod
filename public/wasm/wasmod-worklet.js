@@ -29,6 +29,7 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
     console.log('[Wasmod Worklet] Sample rate set to', sampleRate);
     this.ready = true;
     console.log('[Wasmod Worklet] Initialization complete');
+    this.port.postMessage({ type: 'ready' });
   }
 
   ensureBuffer(frameCount) {
