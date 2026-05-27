@@ -46,6 +46,8 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
   }
 
   handleMessage(message) {
+    console.log('[Wasmod Worklet] handleMessage:', message?.type, message);
+
     if (message?.type === 'start') {
       console.log('[Wasmod Worklet] Starting playback, playing = true');
       this.playing = true;

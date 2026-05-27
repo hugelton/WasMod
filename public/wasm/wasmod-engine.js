@@ -42,8 +42,10 @@ export async function createWasmodWasmEngine() {
 
   const postMessage = (message) => {
     if (!workletNode) {
+      console.warn('[WasMod Engine] postMessage called but workletNode is null:', message);
       return;
     }
+    console.log('[WasMod Engine] postMessage:', message.type, message);
     workletNode.port.postMessage(message);
   };
 

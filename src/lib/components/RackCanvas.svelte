@@ -3,6 +3,7 @@
   import { moduleCatalog } from '../moduleCatalog';
   import { moduleJacks } from '../moduleSpecs';
   import ModuleRenderer from './ModuleRenderer.svelte';
+  import { isActiveControl } from '../actions/autoBindModule';
   import type { CableEndpoint, ModuleKind, PatchCable, PendingCableConnection, RackModuleInstance } from '../types';
 
   type PaletteGhost = {
@@ -130,6 +131,11 @@
 
   function beginModuleDrag(module: RackModuleInstance, event: PointerEvent) {
     if (event.button !== 0) {
+      return;
+    }
+
+    // Prevent module drag if a control is being manipulated
+    if (isActiveControl(event.pointerId)) {
       return;
     }
 

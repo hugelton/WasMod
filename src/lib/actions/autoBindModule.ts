@@ -1,3 +1,6 @@
+// Global flag to prevent module drag during control interaction
+let activeControlPointerId: number | null = null;
+
 type AutoBindModuleOptions = {
   onParameterChange: (paramName: string, value: number) => void;
   disabled?: boolean;
@@ -58,6 +61,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         isDragging = true;
         startY = event.clientY;
         activePointerId = event.pointerId;
+        activeControlPointerId = event.pointerId; // Set global flag
         knob.setPointerCapture?.(event.pointerId);
       };
 
@@ -88,6 +92,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         event.stopPropagation();
         isDragging = false;
         activePointerId = null;
+        activeControlPointerId = null; // Clear global flag
         knob.releasePointerCapture?.(event.pointerId);
       };
 
@@ -137,6 +142,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         isDragging = true;
         startMouseY = event.clientY;
         activePointerId = event.pointerId;
+        activeControlPointerId = event.pointerId; // Set global flag
         cap.setPointerCapture?.(event.pointerId);
       };
 
@@ -167,6 +173,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         event.stopPropagation();
         isDragging = false;
         activePointerId = null;
+        activeControlPointerId = null; // Clear global flag
         cap.releasePointerCapture?.(event.pointerId);
       };
 
@@ -222,6 +229,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         event.preventDefault();
         event.stopPropagation();
         isPressed = true;
+        activeControlPointerId = event.pointerId; // Set global flag
         press();
         if (type === 'momentary') {
           currentOptions.onParameterChange(paramName, 1);
@@ -237,6 +245,7 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
         event.stopPropagation();
 
         isPressed = false;
+        activeControlPointerId = null; // Clear global flag
         release();
 
         if (type === 'momentary') {
@@ -276,4 +285,9 @@ export function autoBindModule(node: SVGSVGElement, options: AutoBindModuleOptio
       cleanups.forEach((cleanup) => cleanup());
     }
   };
+}
+
+// Export function to check if a control is being manipulated
+export function isActiveControl(pointerId: number): boolean {
+  return activeControlPointerId === pointerId;
 }
