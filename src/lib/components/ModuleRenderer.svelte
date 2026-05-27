@@ -20,3 +20,13 @@
 {:else}
   <BlankPanel {hp} />
 {/if}
+
+{#if kind === 'vco4'}
+  <SineVcoModule {interactive} {onParameterChange} />
+{:else if kind === 'junction4'}
+  <JunctionModule />
+{:else if kind === 'speaker4'}
+  <SpeakerModule />
+{:else}
+  <BlankPanel {hp} />
+{/if}

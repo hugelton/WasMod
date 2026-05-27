@@ -136,10 +136,33 @@
 
     // Prevent module drag if a control is being manipulated
     if (isActiveControl(event.pointerId)) {
+      console.log('[RackCanvas] Control is active, ignoring module drag');
       return;
     }
 
     const target = event.target as Element | null;
+
+    // Check if target is SVG - SVG elements should not trigger module drag
+    if (target?.closest('svg')) {
+      console.log('[RackCanvas] Target is SVG, ignoring module drag');
+      return;
+    }
+
+    // Also check if target is within a control
+    if (
+      target?.closest('.wm__knob, .wm__fader, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit') ||
+      target?.classList.contains('wm__knob') ||
+      target?.classList.contains('wm__fader') ||
+      target?.classList.contains('wm__button') ||
+      target?.classList.contains('wm__led_button')
+    ) {
+      console.log('[RackCanvas] Target is control, ignoring module drag');
+      return;
+    }
+
+    console.log('[RackCanvas] Starting module drag for', module.id);
+    event.preventDefault();
+    event.stopPropagation();
 
     // Control class names to check
     const controlClasses = [
