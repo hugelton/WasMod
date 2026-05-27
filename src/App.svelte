@@ -44,25 +44,26 @@
   };
   const CABLE_COLORS = ['#f4f4f5', '#ff7a59', '#5ac8fa', '#30d158', '#ffd60a', '#bf5af2'];
 
-  onMount(() => {
+  onMount(async () => {
     modules = [];
     cables = [];
+
+    // Create engine first before adding modules
+    const created = await createWasmodEngine();
+    engine = created;
+    engineBackend = created.backend;
+    engine.setMasterVolume(masterVolume);
+
+    let unsubscribeMeter = created.subscribeMeter((value) => {
+      meterValue = value;
+    });
+
+    // Now add modules - engine is ready
     addModuleAt('vco4', 0, 0);
     addModuleAt('speaker4', 0, 6);
     addModuleAt('junction4', 0, 12);
     addModuleAt('junction4', 1, 0);
     tick().then(updateMinimap);
-
-    let unsubscribeMeter: (() => void) | null = null;
-
-    createWasmodEngine().then((created) => {
-      engine = created;
-      engineBackend = created.backend;
-      engine.setMasterVolume(masterVolume);
-      unsubscribeMeter = created.subscribeMeter((value) => {
-        meterValue = value;
-      });
-    });
 
     return () => {
       unsubscribeMeter?.();

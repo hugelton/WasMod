@@ -133,12 +133,29 @@
       return;
     }
 
-    const target = event.target as HTMLElement | null;
-    if (
-      target?.closest(
-        '.wm__knob, .wm__fader, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit'
-      )
-    ) {
+    const target = event.target as Element | null;
+
+    // Check if the target is within a control element
+    // Use closest for HTML elements and check parent chain for SVG
+    const closestControl = target?.closest(
+      '.wm__knob, .wm__fader, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit, .knob-graphic, .fader-cap, .btn-graphic, .btn-led'
+    );
+
+    // For SVG elements, also check if the target has the class directly or is a child
+    const isSvgControl =
+      target?.classList.contains('wm__knob') ||
+      target?.classList.contains('wm__fader') ||
+      target?.classList.contains('wm__button') ||
+      target?.classList.contains('wm__led_button') ||
+      target?.classList.contains('wm__input') ||
+      target?.classList.contains('wm__output') ||
+      target?.classList.contains('jack-hit') ||
+      target?.parentElement?.classList.contains('wm__knob') ||
+      target?.parentElement?.classList.contains('wm__fader') ||
+      target?.parentElement?.classList.contains('wm__button') ||
+      target?.parentElement?.classList.contains('wm__led_button');
+
+    if (closestControl || isSvgControl) {
       return;
     }
 
