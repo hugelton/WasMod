@@ -5,91 +5,256 @@ function formatValue(value) {
 }
 
 export async function createWasmodWasmEngine() {
-  await createCoreModule();
   let audioContext = null;
-  let workletNode = null;
-  let workletReady = false;
-  let meterListeners = new Set();
+  let processorNode = null;
+  let core = null;
+  let engineHandle = 0;
+  let bufferPtr = 0;
+  let bufferFrames = 0;
+  let meterCounter = 0;
+  let isReady = false;
+  let isPlaying = false;
   let masterVolume = 0.8;
 
-  const ensureAudio = async () => {
-    if (audioContext && workletNode) {
-      console.log('[WasMod Engine] Audio already initialized');
-      return;
-    }
+  const meterListeners = new Set();
+  const diagnosticsListeners = new Set();
+  const parameterState = new Map();
+  const connectionState = new Map();
 
-    console.log('[WasMod Engine] Creating AudioContext...');
-    audioContext = new AudioContext({ latencyHint: 'interactive' });
-    console.log('[WasMod Engine] AudioContext created, sample rate:', audioContext.sampleRate);
-    console.log('[WasMod Engine] Loading worklet module...');
-    await audioContext.audioWorklet.addModule('/wasm/wasmod-worklet.js');
-    console.log('[WasMod Engine] Worklet module loaded');
-    workletNode = new AudioWorkletNode(audioContext, 'wasmod-worklet', {
-      numberOfInputs: 0,
-      numberOfOutputs: 1,
-      outputChannelCount: [2]
-    });
-    console.log('[WasMod Engine] Worklet node created');
-    workletNode.connect(audioContext.destination);
-    console.log('[WasMod Engine] Worklet connected to destination');
-    workletNode.port.onmessage = (event) => {
-      if (event.data?.type === 'ready') {
-        console.log('[WasMod Engine] Worklet is ready');
-        workletReady = true;
-      } else if (event.data?.type === 'meter') {
-        meterListeners.forEach((listener) => listener(event.data.value));
-      }
-    };
-    workletNode.port.postMessage({ type: 'masterVolume', value: masterVolume });
-    console.log('[WasMod Engine] Audio setup complete');
-    // Wait for worklet to be ready
-    await new Promise(resolve => {
-      if (workletReady) {
-        resolve();
-      } else {
-        const checkReady = () => {
-          if (workletReady) {
-            resolve();
-          } else {
-            setTimeout(checkReady, 10);
-          }
-        };
-        checkReady();
-      }
-    });
-    console.log('[WasMod Engine] Worklet ready confirmed');
+  let lastDiagnostics = {
+    playing: false,
+    ready: false,
+    connectionCount: 0,
+    peak: 0
   };
 
-  const postMessage = (message) => {
-    if (!workletNode) {
-      console.warn('[WasMod Engine] postMessage called but workletNode is null:', message);
+  const emitDiagnostics = (patch = {}) => {
+    lastDiagnostics = {
+      ...lastDiagnostics,
+      ...patch
+    };
+    diagnosticsListeners.forEach((listener) => listener(lastDiagnostics));
+  };
+
+  const connectionKey = (from, to) =>
+    `${from.moduleId}:${from.jackName}:${from.role}->${to.moduleId}:${to.jackName}:${to.role}`;
+
+  const setConnectionState = (cables) => {
+    connectionState.clear();
+    cables.forEach((cable) => {
+      connectionState.set(connectionKey(cable.from, cable.to), {
+        from: cable.from,
+        to: cable.to
+      });
+    });
+  };
+
+  const getConnectionCount = () => {
+    if (!core || !engineHandle) {
+      return 0;
+    }
+    return core.ccall('wasmod_get_connection_count', 'number', ['number'], [engineHandle]);
+  };
+
+  const ensureBuffer = (frameCount) => {
+    if (!core) {
       return;
     }
-    console.log('[WasMod Engine] postMessage:', message.type, message);
-    workletNode.port.postMessage(message);
+    if (bufferFrames === frameCount && bufferPtr) {
+      return;
+    }
+    if (bufferPtr) {
+      core._free(bufferPtr);
+    }
+    bufferFrames = frameCount;
+    bufferPtr = core._malloc(frameCount * Float32Array.BYTES_PER_ELEMENT);
+  };
+
+  const destroyEngineHandle = () => {
+    if (core && engineHandle) {
+      core.ccall('wasmod_destroy_engine', null, ['number'], [engineHandle]);
+    }
+    engineHandle = 0;
+  };
+
+  const createEngineHandle = () => {
+    if (!core || !audioContext) {
+      return false;
+    }
+
+    destroyEngineHandle();
+    engineHandle = core.ccall('wasmod_create_engine', 'number', [], []);
+    core.ccall('wasmod_set_sample_rate', null, ['number', 'number'], [engineHandle, audioContext.sampleRate]);
+    return true;
+  };
+
+  const replayState = () => {
+    if (!core || !engineHandle) {
+      return;
+    }
+
+    parameterState.forEach((value, key) => {
+      const [moduleId, paramName] = key.split('::');
+      core.ccall(
+        'wasmod_set_parameter',
+        null,
+        ['number', 'string', 'string', 'number'],
+        [engineHandle, moduleId, paramName, value]
+      );
+    });
+
+    connectionState.forEach(({ from, to }) => {
+      core.ccall(
+        'wasmod_connect',
+        null,
+        ['number', 'string', 'string', 'string', 'string'],
+        [engineHandle, from.moduleId, from.jackName, to.moduleId, to.jackName]
+      );
+    });
+
+    emitDiagnostics({
+      ready: true,
+      connectionCount: getConnectionCount()
+    });
+  };
+
+  const syncRuntimeState = () => {
+    if (!core || !audioContext) {
+      return;
+    }
+
+    if (!createEngineHandle()) {
+      return;
+    }
+
+    replayState();
+  };
+
+  const closeAudio = async () => {
+    isPlaying = false;
+    isReady = false;
+
+    if (processorNode) {
+      processorNode.disconnect();
+      processorNode.onaudioprocess = null;
+      processorNode = null;
+    }
+
+    if (bufferPtr && core) {
+      core._free(bufferPtr);
+    }
+    bufferPtr = 0;
+    bufferFrames = 0;
+
+    destroyEngineHandle();
+
+    if (audioContext) {
+      await audioContext.close();
+      audioContext = null;
+    }
+
+    emitDiagnostics({
+      ready: false,
+      playing: false,
+      connectionCount: 0,
+      peak: 0
+    });
+  };
+
+  const ensureAudio = async (forceReset = false) => {
+    if (forceReset) {
+      await closeAudio();
+    }
+
+    if (audioContext && processorNode && core && engineHandle) {
+      return;
+    }
+
+    audioContext = new AudioContext({ latencyHint: 'interactive' });
+    core = await createCoreModule();
+    createEngineHandle();
+
+    processorNode = audioContext.createScriptProcessor(256, 0, 2);
+    processorNode.onaudioprocess = (event) => {
+      const left = event.outputBuffer.getChannelData(0);
+      const right = event.outputBuffer.getChannelData(1);
+      const frameCount = left.length;
+
+      if (!isReady || !isPlaying || !core || !engineHandle) {
+        left.fill(0);
+        right.fill(0);
+        return;
+      }
+
+      ensureBuffer(frameCount);
+      core.ccall('wasmod_process_block', null, ['number', 'number', 'number'], [engineHandle, bufferPtr, frameCount]);
+
+      const mono = core.HEAPF32.subarray(
+        bufferPtr / Float32Array.BYTES_PER_ELEMENT,
+        bufferPtr / Float32Array.BYTES_PER_ELEMENT + frameCount
+      );
+
+      let peak = 0;
+      for (let i = 0; i < frameCount; i += 1) {
+        const sample = mono[i] * masterVolume;
+        left[i] = sample;
+        right[i] = sample;
+        const abs = Math.abs(sample);
+        if (abs > peak) {
+          peak = abs;
+        }
+      }
+
+      meterCounter += 1;
+      if (meterCounter >= 4) {
+        meterListeners.forEach((listener) => listener(peak));
+        emitDiagnostics({
+          ready: true,
+          playing: isPlaying,
+          connectionCount: getConnectionCount(),
+          peak
+        });
+        meterCounter = 0;
+      }
+    };
+
+    processorNode.connect(audioContext.destination);
+    isReady = true;
+    emitDiagnostics({
+      ready: true,
+      playing: false,
+      connectionCount: 0,
+      peak: 0
+    });
   };
 
   return {
     ready: true,
     backend: 'wasm',
     setParameter(moduleId, paramName, value) {
-      console.log(`[WasMod Engine] setParameter: ${moduleId}.${paramName} = ${formatValue(value)}`);
-      // Ensure audio is ready before sending parameters
-      ensureAudio().then(() => {
-        postMessage({ type: 'setParameter', moduleId, paramName, value });
-      });
+      parameterState.set(`${moduleId}::${paramName}`, value);
+      if (core && engineHandle) {
+        core.ccall(
+          'wasmod_set_parameter',
+          null,
+          ['number', 'string', 'string', 'number'],
+          [engineHandle, moduleId, paramName, value]
+        );
+      }
 
       return {
         text: `> WASM.setParameter("${moduleId}.${paramName}", ${formatValue(value)})`,
         level: 'info'
       };
     },
+    setConnections(cables) {
+      setConnectionState(cables);
+      syncRuntimeState();
+      emitDiagnostics({ connectionCount: getConnectionCount() });
+    },
     connect(from, to) {
-      console.log(`[WasMod Engine] connect: ${from.moduleId}.${from.jackName} -> ${to.moduleId}.${to.jackName}`);
-      // Ensure audio is ready before connecting
-      ensureAudio().then(() => {
-        postMessage({ type: 'connect', from, to });
-      });
+      connectionState.set(connectionKey(from, to), { from, to });
+      syncRuntimeState();
 
       return {
         text: `> WASM.connect("${from.moduleId}.${from.jackName}" -> "${to.moduleId}.${to.jackName}")`,
@@ -97,33 +262,46 @@ export async function createWasmodWasmEngine() {
       };
     },
     disconnect(cableId) {
-      console.log(`[WasMod Engine] disconnect: ${cableId}`);
-      postMessage({ type: 'disconnect', cableId });
+      for (const [key, value] of connectionState.entries()) {
+        if (cableId.includes(value.from.moduleId) && cableId.includes(value.to.moduleId)) {
+          connectionState.delete(key);
+        }
+      }
+      syncRuntimeState();
+
       return {
         text: `> WASM.disconnect("${cableId}")`,
         level: 'warning'
       };
     },
     async start() {
-      console.log('[WasMod Engine] Starting audio...');
-      await ensureAudio();
+      await ensureAudio(true);
+      replayState();
       await audioContext.resume();
-      postMessage({ type: 'start' });
-      console.log('[WasMod Engine] Audio started');
+      isPlaying = true;
+      emitDiagnostics({
+        ready: true,
+        playing: true,
+        connectionCount: getConnectionCount(),
+        peak: 0
+      });
     },
     async stop() {
-      console.log('[WasMod Engine] Stopping audio...');
       if (!audioContext) {
         return;
       }
-      postMessage({ type: 'stop' });
+      isPlaying = false;
       await audioContext.suspend();
       meterListeners.forEach((listener) => listener(0));
-      console.log('[WasMod Engine] Audio stopped');
+      emitDiagnostics({
+        ready: isReady,
+        playing: false,
+        connectionCount: getConnectionCount(),
+        peak: 0
+      });
     },
     setMasterVolume(value) {
       masterVolume = value;
-      postMessage({ type: 'masterVolume', value });
     },
     subscribeMeter(listener) {
       meterListeners.add(listener);
@@ -131,14 +309,17 @@ export async function createWasmodWasmEngine() {
         meterListeners.delete(listener);
       };
     },
+    subscribeDiagnostics(listener) {
+      diagnosticsListeners.add(listener);
+      listener(lastDiagnostics);
+      return () => {
+        diagnosticsListeners.delete(listener);
+      };
+    },
     async destroy() {
-      if (audioContext) {
-        postMessage({ type: 'stop' });
-        await audioContext.close();
-      }
+      await closeAudio();
       meterListeners.clear();
-      audioContext = null;
-      workletNode = null;
+      diagnosticsListeners.clear();
     }
   };
 }

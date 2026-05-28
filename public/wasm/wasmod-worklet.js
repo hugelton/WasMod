@@ -53,12 +53,14 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
     if (message?.type === 'start') {
       console.log('[Wasmod Worklet] Starting playback, playing = true');
       this.playing = true;
+      this.emitDiagnostics(0);
       return;
     }
 
     if (message?.type === 'stop') {
       console.log('[Wasmod Worklet] Stopping playback, playing = false');
       this.playing = false;
+      this.emitDiagnostics(0);
       return;
     }
 
@@ -100,6 +102,7 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
       );
       const count = this.core.ccall('wasmod_get_connection_count', 'number', ['number'], [this.engineHandle]);
       console.log('[Wasmod Worklet] Connection count after connect:', count);
+      this.emitDiagnostics(0);
       return;
     }
 
@@ -108,7 +111,24 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
       this.core.ccall('wasmod_disconnect', null, ['number', 'string'], [this.engineHandle, message.cableId]);
       const count = this.core.ccall('wasmod_get_connection_count', 'number', ['number'], [this.engineHandle]);
       console.log('[Wasmod Worklet] Connection count after disconnect:', count);
+      this.emitDiagnostics(0);
     }
+  }
+
+  emitDiagnostics(peak) {
+    const connectionCount =
+      this.ready && this.core && this.engineHandle
+        ? this.core.ccall('wasmod_get_connection_count', 'number', ['number'], [this.engineHandle])
+        : 0;
+    this.port.postMessage({
+      type: 'diagnostics',
+      value: {
+        playing: this.playing,
+        ready: this.ready,
+        connectionCount,
+        peak
+      }
+    });
   }
 
   process(_inputs, outputs) {
@@ -152,6 +172,7 @@ class WasmodWorkletProcessor extends AudioWorkletProcessor {
     this.meterCounter += 1;
     if (this.meterCounter >= 4) {
       this.port.postMessage({ type: 'meter', value: peak });
+      this.emitDiagnostics(peak);
       this.meterCounter = 0;
 
       // Log connection count periodically (every ~4th meter update = ~320ms at 128 frames)

@@ -28,6 +28,8 @@
     y: number;
     startClientX: number;
     startClientY: number;
+    replaceCableId?: string;
+    replaceEndpoint?: 'from' | 'to';
   } | null;
 
   type ClickGuard = {
@@ -41,6 +43,7 @@
   const dispatch = createEventDispatcher<{
     canvasTap: void;
     moduleTap: { id: string };
+    cableTap: { id: string };
     moduleContextMenu: { id: string; clientX: number; clientY: number };
     moveModule: { id: string; rackIndex: number; xHp: number };
     addModuleDrop: { kind: ModuleKind; rackIndex: number; xHp: number };
@@ -53,6 +56,7 @@
   export let rackCount = 8;
   export let hpUnitPx = 20;
   export let selectedId: string | null = null;
+  export let selectedCableId: string | null = null;
   export let paletteGhost: PaletteGhost = null;
   export let cables: PatchCable[] = [];
   export let nextCableColor = '#f4f4f5';
@@ -64,6 +68,8 @@
   let modulesByRack: RackModuleInstance[][] = [];
   let wiringState: WiringState = null;
   let clickGuard: ClickGuard = null;
+  let pendingJack: CableEndpoint | null = null;
+  let hoveredCableId: string | null = null;
 
   function sameEndpoint(a: CableEndpoint, b: CableEndpoint) {
     return a.moduleId === b.moduleId && a.jackName === b.jackName && a.role === b.role;
@@ -134,59 +140,13 @@
       return;
     }
 
-    // Prevent module drag if a control is being manipulated
     if (isActiveControl(event.pointerId)) {
-      console.log('[RackCanvas] Control is active, ignoring module drag');
       return;
     }
 
     const target = event.target as Element | null;
-
-    // Check if target is SVG - SVG elements should not trigger module drag
-    if (target?.closest('svg')) {
-      console.log('[RackCanvas] Target is SVG, ignoring module drag');
+    if (target?.closest('.wm__knob, .wm__fader, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit, .knob-graphic, .fader-cap, .btn-graphic, .btn-led')) {
       return;
-    }
-
-    // Also check if target is within a control
-    if (
-      target?.closest('.wm__knob, .wm__fader, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit') ||
-      target?.classList.contains('wm__knob') ||
-      target?.classList.contains('wm__fader') ||
-      target?.classList.contains('wm__button') ||
-      target?.classList.contains('wm__led_button')
-    ) {
-      console.log('[RackCanvas] Target is control, ignoring module drag');
-      return;
-    }
-
-    console.log('[RackCanvas] Starting module drag for', module.id);
-    event.preventDefault();
-    event.stopPropagation();
-
-    // Control class names to check
-    const controlClasses = [
-      'wm__knob', 'wm__fader', 'wm__button', 'wm__led_button',
-      'wm__input', 'wm__output', 'jack-hit',
-      'knob-graphic', 'fader-cap', 'btn-graphic', 'btn-led'
-    ];
-
-    // Check if target or any parent has a control class
-    let element: Element | null = target;
-    while (element) {
-      // Check if element has any control class
-      for (const cls of controlClasses) {
-        if (element.classList.contains(cls)) {
-          return; // Found a control, don't drag module
-        }
-      }
-
-      // Also try closest() for better DOM traversal
-      if (element.closest('.wm__knob, .wm__fader, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit, .knob-graphic, .fader-cap, .btn-graphic, .btn-led')) {
-        return;
-      }
-
-      element = element.parentElement;
     }
 
     event.preventDefault();
@@ -246,8 +206,10 @@
       return;
     }
 
-    const moduleElement = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-module-id]');
-    if (!moduleElement) {
+    const target = event.target as HTMLElement | null;
+    const moduleElement = target?.closest<HTMLElement>('[data-module-id]');
+    const cableElement = target?.closest<HTMLElement>('[data-cable-id]');
+    if (!moduleElement && !cableElement) {
       dispatch('canvasTap');
     }
   }
@@ -311,6 +273,15 @@
   }
 
   function beginWiring(event: PointerEvent, endpoint: CableEndpoint) {
+    beginCableDrag(event, endpoint);
+  }
+
+  function beginCableDrag(
+    event: PointerEvent,
+    endpoint: CableEndpoint,
+    replaceCableId?: string,
+    replaceEndpoint?: 'from' | 'to'
+  ) {
     if (event.button !== 0) {
       return;
     }
@@ -329,8 +300,62 @@
       x: center.x,
       y: center.y,
       startClientX: event.clientX,
-      startClientY: event.clientY
+      startClientY: event.clientY,
+      replaceCableId,
+      replaceEndpoint
     };
+  }
+
+  function applyPendingJack(endpoint: CableEndpoint) {
+    if (!pendingJack) {
+      pendingJack = endpoint;
+      return;
+    }
+
+    if (sameEndpoint(pendingJack, endpoint)) {
+      pendingJack = null;
+      return;
+    }
+
+    if (canConnectEndpoints(pendingJack, endpoint) && !cableExists(pendingJack, endpoint)) {
+      dispatch('cableConnect', {
+        from: pendingJack,
+        to: endpoint
+      });
+    }
+
+    pendingJack = null;
+  }
+
+  function handleJackPointerUp(event: PointerEvent, endpoint: CableEndpoint) {
+    if (!wiringState || event.pointerId !== wiringState.pointerId) {
+      return;
+    }
+
+    const moved =
+      Math.abs(event.clientX - wiringState.startClientX) > 4 || Math.abs(event.clientY - wiringState.startClientY) > 4;
+
+    if (moved) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    applyPendingJack(endpoint);
+  }
+
+  function beginCableEndpointMove(event: PointerEvent, cable: PatchCable, endpoint: 'from' | 'to') {
+    const anchor = endpoint === 'from' ? cable.to : cable.from;
+    beginCableDrag(event, anchor, cable.id, endpoint);
+    pendingJack = null;
+    dispatch('cableTap', { id: cable.id });
+  }
+
+  function handleCableClick(event: MouseEvent, cableId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    pendingJack = null;
+    dispatch('cableTap', { id: cableId });
   }
 
   function finishWiring(clientX: number, clientY: number) {
@@ -357,11 +382,27 @@
       endpoint.moduleId &&
       endpoint.jackName &&
       canConnectEndpoints(wiringState.from, endpoint) &&
-      !cableExists(wiringState.from, endpoint)
+      (!cableExists(wiringState.from, endpoint) || wiringState.replaceCableId)
     ) {
+      const nextConnection =
+        wiringState.replaceEndpoint === 'from'
+          ? {
+              from: endpoint,
+              to: wiringState.from
+            }
+          : wiringState.replaceEndpoint === 'to'
+            ? {
+                from: wiringState.from,
+                to: endpoint
+              }
+            : {
+                from: wiringState.from,
+                to: endpoint
+              };
       dispatch('cableConnect', {
-        from: wiringState.from,
-        to: endpoint
+        ...nextConnection,
+        replaceCableId: wiringState.replaceCableId,
+        replaceEndpoint: wiringState.replaceEndpoint
       });
     }
 
@@ -473,13 +514,34 @@
       {@const fromCenter = getJackCenter(cable.from)}
       {@const toCenter = getJackCenter(cable.to)}
       {@const cablePath = fromCenter && toCenter ? buildCablePath(fromCenter, toCenter) : null}
+      {@const cableIsFocused = selectedCableId === cable.id || hoveredCableId === cable.id}
       {#if fromCenter && toCenter}
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <path
+          d={cablePath}
+          stroke="transparent"
+          stroke-width={Math.max(14, cableStrokeWidth() + 10)}
+          fill="none"
+          stroke-linecap="round"
+          class="cable-hit"
+          data-cable-id={cable.id}
+          on:pointerenter={() => {
+            hoveredCableId = cable.id;
+          }}
+          on:pointerleave={() => {
+            if (hoveredCableId === cable.id) {
+              hoveredCableId = null;
+            }
+          }}
+          on:click={(event) => handleCableClick(event, cable.id)}
+        />
         <path
           d={cablePath}
           stroke="#050607"
           stroke-width={cableStrokeWidth() + 2.2}
           fill="none"
           stroke-linecap="round"
+          class:cable-focused={cableIsFocused}
           class="cable-path cable-shadow"
         />
         <path
@@ -488,6 +550,7 @@
           stroke-width={cableStrokeWidth()}
           fill="none"
           stroke-linecap="round"
+          class:cable-focused={cableIsFocused}
           class="cable-path cable-main"
         />
         <path
@@ -496,8 +559,27 @@
           stroke-width={Math.max(1.2, cableStrokeWidth() * 0.34)}
           fill="none"
           stroke-linecap="round"
+          class:cable-focused={cableIsFocused}
           class="cable-path cable-highlight"
         />
+        {#if selectedCableId === cable.id}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <circle
+            class="cable-endpoint-handle"
+            cx={fromCenter.x}
+            cy={fromCenter.y}
+            r={8}
+            on:pointerdown={(event) => beginCableEndpointMove(event, cable, 'from')}
+          />
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <circle
+            class="cable-endpoint-handle"
+            cx={toCenter.x}
+            cy={toCenter.y}
+            r={8}
+            on:pointerdown={(event) => beginCableEndpointMove(event, cable, 'to')}
+          />
+        {/if}
       {/if}
     {/each}
 
@@ -568,12 +650,18 @@
 
             {#if moduleJacks[module.kind]}
               {#each moduleJacks[module.kind] as jack}
-                <div
+                <button
+                  type="button"
                   class="jack-hit"
+                  class:selected={pendingJack && sameEndpoint(pendingJack, {
+                    moduleId: module.id,
+                    jackName: jack.name,
+                    role: jack.role
+                  })}
                   data-jack-module-id={module.id}
                   data-jack-name={jack.name}
                   data-jack-role={jack.role}
-                  role="button"
+                  aria-label={`${module.id} ${jack.name}`}
                   tabindex="-1"
                   style={`left: calc(${mmToEm(jack.xMm)}em - 7px); top: calc(${mmToEm(jack.yMm)}em - 7px);`}
                   on:pointerdown={(event) =>
@@ -582,7 +670,13 @@
                       jackName: jack.name,
                       role: jack.role
                     })}
-                ></div>
+                  on:pointerup={(event) =>
+                    handleJackPointerUp(event, {
+                      moduleId: module.id,
+                      jackName: jack.name,
+                      role: jack.role
+                    })}
+                ></button>
               {/each}
             {/if}
           </div>

@@ -4,7 +4,14 @@
   import ModuleRenderer from './lib/components/ModuleRenderer.svelte';
   import { createWasmodEngine } from './lib/engine/createEngine';
   import { moduleCatalog, moduleOrder, RACK_TOTAL_HP } from './lib/moduleCatalog';
-  import type { ModuleKind, PatchCable, PendingCableConnection, RackModuleInstance, WasmodEngine } from './lib/types';
+  import type {
+    ModuleKind,
+    PatchCable,
+    PendingCableConnection,
+    RackModuleInstance,
+    WasmodEngine,
+    WasmodEngineDiagnostics
+  } from './lib/types';
 
   type PaletteGhost = {
     kind: ModuleKind;
@@ -17,6 +24,7 @@
   let modules: RackModuleInstance[] = [];
   let cables: PatchCable[] = [];
   let selectedId: string | null = null;
+  let selectedCableId: string | null = null;
   let actionMenuId: string | null = null;
   let instanceCounter = 1;
   let paletteGhost: PaletteGhost = null;
@@ -44,29 +52,49 @@
   };
   const CABLE_COLORS = ['#f4f4f5', '#ff7a59', '#5ac8fa', '#30d158', '#ffd60a', '#bf5af2'];
 
-  onMount(async () => {
-    modules = [];
-    cables = [];
+  onMount(() => {
+    let unsubscribeMeter: (() => void) | undefined;
+    let unsubscribeDiagnostics: (() => void) | undefined;
+    let disposed = false;
 
-    // Create engine first before adding modules
-    const created = await createWasmodEngine();
-    engine = created;
-    engineBackend = created.backend;
-    engine.setMasterVolume(masterVolume);
+    const init = async () => {
+      modules = [];
+      cables = [];
 
-    let unsubscribeMeter = created.subscribeMeter((value) => {
-      meterValue = value;
-    });
+      const created = await createWasmodEngine();
+      if (disposed) {
+        await created.destroy();
+        return;
+      }
 
-    // Now add modules - engine is ready
-    addModuleAt('vco4', 0, 0);
-    addModuleAt('speaker4', 0, 6);
-    addModuleAt('junction4', 0, 12);
-    addModuleAt('junction4', 1, 0);
-    tick().then(updateMinimap);
+      engine = created;
+      engineBackend = created.backend;
+      engine.setMasterVolume(masterVolume);
+
+      unsubscribeMeter = created.subscribeMeter((value) => {
+        meterValue = value;
+      });
+      if ('subscribeDiagnostics' in created && typeof created.subscribeDiagnostics === 'function') {
+        unsubscribeDiagnostics = created.subscribeDiagnostics(() => {});
+      }
+
+      modules = [
+        { id: 'vco4-1', kind: 'vco4', hp: moduleCatalog.vco4.hp, xHp: 0, rackIndex: 0 },
+        { id: 'speaker4-2', kind: 'speaker4', hp: moduleCatalog.speaker4.hp, xHp: 4, rackIndex: 0 },
+        { id: 'junction4-3', kind: 'junction4', hp: moduleCatalog.junction4.hp, xHp: 8, rackIndex: 0 },
+        { id: 'junction4-4', kind: 'junction4', hp: moduleCatalog.junction4.hp, xHp: 0, rackIndex: 1 }
+      ];
+      instanceCounter = 5;
+      selectedId = 'junction4-4';
+      tick().then(updateMinimap);
+    };
+
+    void init();
 
     return () => {
+      disposed = true;
       unsubscribeMeter?.();
+      unsubscribeDiagnostics?.();
       engine?.destroy();
     };
   });
@@ -270,11 +298,13 @@
 
   function handleModuleTap(id: string) {
     selectedId = id;
+    selectedCableId = null;
     actionMenuId = null;
   }
 
   function handleModuleContextMenu(id: string, clientX: number, clientY: number) {
     selectedId = id;
+    selectedCableId = null;
     actionMenuId = id;
     tick().then(() => {
       updateMenuPosition();
@@ -283,6 +313,7 @@
 
   function clearSelection() {
     selectedId = null;
+    selectedCableId = null;
     actionMenuId = null;
     menuPosition = null;
   }
@@ -306,9 +337,24 @@
 
     const cableIds = new Set(targetCables.map((cable) => cable.id));
     cables = cables.filter((cable) => !cableIds.has(cable.id));
-    targetCables.forEach((cable) => {
-      engine?.disconnect(cable.id);
-    });
+    if (selectedCableId && cableIds.has(selectedCableId)) {
+      selectedCableId = null;
+    }
+    engine?.setConnections(cables);
+  }
+
+  function removeSelectedCable() {
+    if (!selectedCableId) {
+      return;
+    }
+
+    const target = cables.find((cable) => cable.id === selectedCableId);
+    if (!target) {
+      selectedCableId = null;
+      return;
+    }
+
+    removeCables([target]);
   }
 
   function duplicateSelected() {
@@ -343,6 +389,34 @@
     menuPosition = null;
   }
 
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') {
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.tagName === 'SELECT')
+    ) {
+      return;
+    }
+
+    if (selectedCableId) {
+      event.preventDefault();
+      removeSelectedCable();
+      return;
+    }
+
+    if (selectedId) {
+      event.preventDefault();
+      removeSelected();
+    }
+  }
+
   function togglePalette() {
     paletteOpen = !paletteOpen;
   }
@@ -351,6 +425,7 @@
     if (!engine) {
       return;
     }
+    engine.setConnections(cables);
     await engine.start();
     isPlaying = true;
   }
@@ -374,7 +449,19 @@
   }
 
   function handleCableConnect(connection: PendingCableConnection) {
-    const duplicate = cables.some(
+    const baseCables = connection.replaceCableId
+      ? cables.filter((cable) => cable.id !== connection.replaceCableId)
+      : cables;
+
+    if (
+      connection.replaceCableId &&
+      connection.replaceEndpoint &&
+      sameEndpoint(connection.from, connection.to)
+    ) {
+      return;
+    }
+
+    const duplicate = baseCables.some(
       (cable) =>
         (sameEndpoint(cable.from, connection.from) && sameEndpoint(cable.to, connection.to)) ||
         (sameEndpoint(cable.from, connection.to) && sameEndpoint(cable.to, connection.from))
@@ -384,15 +471,23 @@
       return;
     }
 
+    const replacedCable = connection.replaceCableId
+      ? cables.find((cable) => cable.id === connection.replaceCableId)
+      : undefined;
+
     const cable: PatchCable = {
-      id: `cable-${connection.from.moduleId}-${connection.from.jackName}-${connection.to.moduleId}-${connection.to.jackName}-${Date.now()}`,
-      color: nextCableColor(),
+      id:
+        connection.replaceCableId ??
+        `cable-${connection.from.moduleId}-${connection.from.jackName}-${connection.to.moduleId}-${connection.to.jackName}-${Date.now()}`,
+      color: replacedCable?.color ?? nextCableColor(),
       from: connection.from,
       to: connection.to
     };
 
-    cables = [...cables, cable];
-    engine?.connect(cable.from, cable.to);
+    cables = [...baseCables, cable];
+    selectedCableId = cable.id;
+    selectedId = null;
+    engine?.setConnections(cables);
   }
 
   $: filteredModuleOrder = moduleOrder.filter((kind) => {
@@ -426,6 +521,7 @@
 <svelte:window
   on:resize={updateMinimap}
   on:scroll={updateMenuPosition}
+  on:keydown={handleKeydown}
   on:pointermove={(event) => {
     if (paletteGhost?.active && event.pointerId === paletteGhost.pointerId) {
       paletteGhost = { ...paletteGhost, x: event.clientX, y: event.clientY };
@@ -480,12 +576,18 @@
           totalHp={RACK_TOTAL_HP}
           hpUnitPx={rackUnitPx}
           {selectedId}
+          {selectedCableId}
           {paletteGhost}
           nextCableColor={nextCableColor()}
           {canPlaceModule}
           {canPlaceNewModule}
           on:canvasTap={clearSelection}
           on:moduleTap={(event) => handleModuleTap(event.detail.id)}
+          on:cableTap={(event) => {
+            selectedCableId = event.detail.id;
+            selectedId = null;
+            actionMenuId = null;
+          }}
           on:moduleContextMenu={(event) =>
             handleModuleContextMenu(event.detail.id, event.detail.clientX, event.detail.clientY)}
           on:parameterChange={(event) =>

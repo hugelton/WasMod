@@ -35,6 +35,8 @@ export interface PatchCable {
 export interface PendingCableConnection {
   from: CableEndpoint;
   to: CableEndpoint;
+  replaceCableId?: string;
+  replaceEndpoint?: 'from' | 'to';
 }
 
 export interface EngineLogEntry {
@@ -42,15 +44,24 @@ export interface EngineLogEntry {
   level?: 'info' | 'success' | 'warning';
 }
 
+export interface WasmodEngineDiagnostics {
+  playing: boolean;
+  ready: boolean;
+  connectionCount: number;
+  peak: number;
+}
+
 export interface WasmodEngine {
   ready: boolean;
   backend: 'mock' | 'wasm';
   setParameter(moduleId: string, paramName: string, value: number): EngineLogEntry;
+  setConnections(cables: PatchCable[]): void;
   connect(from: CableEndpoint, to: CableEndpoint): EngineLogEntry;
   disconnect(cableId: string): EngineLogEntry;
   start(): Promise<void>;
   stop(): Promise<void>;
   setMasterVolume(value: number): void;
   subscribeMeter(listener: (value: number) => void): () => void;
+  subscribeDiagnostics(listener: (value: WasmodEngineDiagnostics) => void): () => void;
   destroy(): Promise<void>;
 }

@@ -1,5 +1,8 @@
 #include <cmath>
+#include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -18,14 +21,32 @@ struct VcoState {
   float phase = 0.0f;
 };
 
-struct EngineState {
-  float sample_rate = kSampleRate;
-  VcoState vco;
-  int speaker_connection_count = 0;
+struct ConnectionState {
+  std::string from_module;
+  std::string from_jack;
+  std::string to_module;
+  std::string to_jack;
 };
 
-float nextSine(EngineState& engine) {
-  VcoState& vco = engine.vco;
+struct EngineState {
+  float sample_rate = kSampleRate;
+  std::unordered_map<std::string, VcoState> vcos;
+  std::vector<ConnectionState> connections;
+};
+
+bool isVcoModule(std::string_view module_id) {
+  return module_id.find("vco") != std::string_view::npos;
+}
+
+bool isSpeakerInput(std::string_view module_id, std::string_view jack_name) {
+  return module_id.find("speaker") != std::string_view::npos && jack_name == "audio_in";
+}
+
+VcoState& ensureVco(EngineState& engine, std::string_view module_id) {
+  return engine.vcos[std::string(module_id)];
+}
+
+float nextSine(EngineState& engine, VcoState& vco) {
   const float pitch = vco.pitch + vco.cv;
   const float tunedFrequency = std::max(20.0f, 261.625565f * std::pow(2.0f, pitch));
   const float increment = tunedFrequency / engine.sample_rate;
@@ -56,10 +77,13 @@ EMSCRIPTEN_KEEPALIVE void wasmod_set_parameter(EngineState* engine, const char* 
   std::string_view module(module_id);
   std::string_view param(param_name);
 
-  if (module.find("vco") != std::string_view::npos) {
-    if (param == "Pitch") {
-      engine->vco.pitch = value;
-    }
+  if (!isVcoModule(module)) {
+    return;
+  }
+
+  VcoState& vco = ensureVco(*engine, module);
+  if (param == "Pitch") {
+    vco.pitch = value;
   }
 }
 
@@ -73,22 +97,27 @@ EMSCRIPTEN_KEEPALIVE void wasmod_connect(EngineState* engine, const char* from_m
   std::string_view toModule(to_module);
   std::string_view toJack(to_jack);
 
-  const bool speakerTarget =
-    (toModule.find("speaker") != std::string_view::npos && toJack == "audio_in") ||
-    (fromModule.find("speaker") != std::string_view::npos && fromJack == "audio_in");
-
-  if (speakerTarget) {
-    engine->speaker_connection_count += 1;
+  if (isVcoModule(fromModule)) {
+    ensureVco(*engine, fromModule);
   }
+  if (isVcoModule(toModule)) {
+    ensureVco(*engine, toModule);
+  }
+
+  engine->connections.push_back({
+    std::string(fromModule),
+    std::string(fromJack),
+    std::string(toModule),
+    std::string(toJack)
+  });
 }
 
 EMSCRIPTEN_KEEPALIVE void wasmod_disconnect(EngineState* engine, const char* /*cable_id*/) {
   if (!engine) {
     return;
   }
-
-  if (engine->speaker_connection_count > 0) {
-    engine->speaker_connection_count -= 1;
+  if (!engine->connections.empty()) {
+    engine->connections.pop_back();
   }
 }
 
@@ -96,7 +125,7 @@ EMSCRIPTEN_KEEPALIVE int wasmod_get_connection_count(EngineState* engine) {
   if (!engine) {
     return -1;
   }
-  return engine->speaker_connection_count;
+  return static_cast<int>(engine->connections.size());
 }
 
 EMSCRIPTEN_KEEPALIVE void wasmod_set_sample_rate(EngineState* engine, float sample_rate) {
@@ -112,8 +141,27 @@ EMSCRIPTEN_KEEPALIVE void wasmod_process_block(EngineState* engine, float* outpu
   }
 
   for (int frame = 0; frame < frame_count; ++frame) {
-    const float vcoSample = engine->speaker_connection_count > 0 ? nextSine(*engine) : 0.0f;
-    output[frame] = vcoSample * 0.18f;
+    float mix = 0.0f;
+    int active_vco_count = 0;
+
+    for (const ConnectionState& connection : engine->connections) {
+      const bool toSpeaker = isSpeakerInput(connection.to_module, connection.to_jack);
+      const bool fromSpeaker = isSpeakerInput(connection.from_module, connection.from_jack);
+
+      if (toSpeaker && isVcoModule(connection.from_module) && connection.from_jack == "audio_out") {
+        mix += nextSine(*engine, ensureVco(*engine, connection.from_module));
+        active_vco_count += 1;
+      } else if (fromSpeaker && isVcoModule(connection.to_module) && connection.to_jack == "audio_out") {
+        mix += nextSine(*engine, ensureVco(*engine, connection.to_module));
+        active_vco_count += 1;
+      }
+    }
+
+    if (active_vco_count > 1) {
+      mix /= static_cast<float>(active_vco_count);
+    }
+
+    output[frame] = mix * 0.18f;
   }
 }
 
