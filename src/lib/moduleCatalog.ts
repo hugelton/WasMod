@@ -6,6 +6,7 @@ export const MODULE_MM_PER_HP = 5.08;
 export const MODULE_HEIGHT_MM = 128.5;
 export const STRIP_PITCH_MM = 121.5;
 export const BASE_RACK_HEIGHT_PX = BASE_HP_PX * (MODULE_HEIGHT_MM / MODULE_MM_PER_HP);
+export const RACK_COUNT = 8;
 
 export const moduleCatalog: Record<ModuleKind, ModuleCatalogEntry> = {
   blank2: {

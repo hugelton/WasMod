@@ -2,9 +2,7 @@
   import { moduleCatalog } from '../../moduleCatalog';
   import type { RackModuleInstance, PatchCable } from '../../types';
 
-  export let selectedId: string | null = null;
   export let selectedModuleIds: string[] = [];
-  export let selectedCableId: string | null = null;
   export let selectedModule: RackModuleInstance | null = null;
   export let selectedCable: PatchCable | null = null;
   export let selectedModuleCableCount = 0;

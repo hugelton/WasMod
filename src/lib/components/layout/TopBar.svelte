@@ -1,4 +1,5 @@
 <script lang="ts">
+  // eslint-disable-next-line svelte-unused-export-let
   export let isPlaying = false;
   export let masterVolume = 0.72;
   export let meterValue = 0;
