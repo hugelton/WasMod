@@ -114,7 +114,7 @@
 
   {#if modules.length === 0}
     <div class="rack-hint-card prominent">
-      <p>ラックは空です。モジュールパレットから追加できます。</p>
+      <p>The rack is empty. You can add modules from the module palette.</p>
     </div>
   {/if}
 </section>

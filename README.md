@@ -122,22 +122,22 @@ npm run build
 
 ## Deployment
 
-### GitHub Pages（自動デプロイ）
+### GitHub Pages (Auto Deploy)
 
-リポジトリをGitHubにプッシュすると、自動的にGitHub Pagesにデプロイされます：
+Push to GitHub repository to automatically deploy to GitHub Pages:
 
-1. リポジトリのSettings → Pagesで「Source」を「GitHub Actions」に設定
-2. `main`ブランチにプッシュするだけで自動デプロイ完了
-3. `https://<username>.github.io/WasMod/` でアクセス可能
+1. Set "Source" to "GitHub Actions" in repository Settings → Pages
+2. Just push to `main` branch for auto-deploy
+3. Access at `https://<username>.github.io/WasMod/`
 
-### Vercel（手動デプロイ）
+### Vercel (Manual Deploy)
 
 ```bash
 npm run build
 vercel --prod
 ```
 
-### Netlify（手動デプロイ）
+### Netlify (Manual Deploy)
 
 ```bash
 npm run build
@@ -161,3 +161,7 @@ When `public/wasm/wasmod-engine.js` is present, the frontend prefers that loader
 - DSP is currently minimal: audio toggles based only on Speaker connection count
 - Junction is UI/cable‑test only; no passive‑multiple DSP yet
 - Full module‑posting model (`modules/<maker>/<module>/module.yml`) is upcoming
+
+## License
+
+MIT License - See LICENSE file for details
