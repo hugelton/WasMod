@@ -18,6 +18,7 @@ class MockWasmodEngine implements WasmodEngine {
       ready: true,
       connectionCount: 0,
       peak: 0,
+      audioHealthy: true,
       ...patch
     };
     this.diagnosticsListeners.forEach((listener) => listener(state));
@@ -86,7 +87,8 @@ class MockWasmodEngine implements WasmodEngine {
       playing: this.meterTimer !== null,
       ready: true,
       connectionCount: 0,
-      peak: 0
+      peak: 0,
+      audioHealthy: true
     });
     return () => {
       this.diagnosticsListeners.delete(listener);

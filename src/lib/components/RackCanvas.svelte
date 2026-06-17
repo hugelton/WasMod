@@ -19,6 +19,17 @@
     targetRackIndex: number;
     previewHp: number;
     offsetHp: number;
+    groupIds: string[];
+    groupOrigins: Record<string, { rackIndex: number; xHp: number }>;
+  } | null;
+
+  type AreaSelectionState = {
+    pointerId: number;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    moved: boolean;
   } | null;
 
   type WiringState = {
@@ -45,10 +56,14 @@
     moduleTap: { id: string };
     cableTap: { id: string };
     moduleContextMenu: { id: string; clientX: number; clientY: number };
+    cableContextMenu: { id: string; clientX: number; clientY: number };
     moveModule: { id: string; rackIndex: number; xHp: number };
+    moveModules: { moves: Array<{ id: string; rackIndex: number; xHp: number }> };
+    areaSelectModules: { ids: string[] };
     addModuleDrop: { kind: ModuleKind; rackIndex: number; xHp: number };
     parameterChange: { moduleId: string; paramName: string; value: number };
     cableConnect: PendingCableConnection;
+    cableDisconnect: { id: string };
   }>();
 
   export let modules: RackModuleInstance[] = [];
@@ -56,6 +71,7 @@
   export let rackCount = 8;
   export let hpUnitPx = 20;
   export let selectedId: string | null = null;
+  export let selectedModuleIds: string[] = [];
   export let selectedCableId: string | null = null;
   export let paletteGhost: PaletteGhost = null;
   export let cables: PatchCable[] = [];
@@ -70,6 +86,7 @@
   let clickGuard: ClickGuard = null;
   let pendingJack: CableEndpoint | null = null;
   let hoveredCableId: string | null = null;
+  let areaSelectionState: AreaSelectionState = null;
 
   function sameEndpoint(a: CableEndpoint, b: CableEndpoint) {
     return a.moduleId === b.moduleId && a.jackName === b.jackName && a.role === b.role;
@@ -97,7 +114,7 @@
   }
 
   function hpInPixels() {
-    return parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return rackRoot ? parseFloat(getComputedStyle(rackRoot).fontSize) : hpUnitPx;
   }
 
   function cableStrokeWidth() {
@@ -135,7 +152,76 @@
     return Math.max(0, Math.min(maxHp, Math.round(rawHp)));
   }
 
+  function rootPoint(clientX: number, clientY: number) {
+    const rect = rackRoot.getBoundingClientRect();
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  }
+
+  function selectionRect() {
+    if (!areaSelectionState) {
+      return null;
+    }
+    const left = Math.min(areaSelectionState.startX, areaSelectionState.currentX);
+    const top = Math.min(areaSelectionState.startY, areaSelectionState.currentY);
+    const right = Math.max(areaSelectionState.startX, areaSelectionState.currentX);
+    const bottom = Math.max(areaSelectionState.startY, areaSelectionState.currentY);
+    return {
+      left,
+      top,
+      width: right - left,
+      height: bottom - top,
+      right,
+      bottom
+    };
+  }
+
+  function moduleRect(module: RackModuleInstance) {
+    const hpPx = hpInPixels();
+    const panelHeightPx = hpPx * (128.5 / 5.08);
+    return {
+      left: module.xHp * hpPx,
+      right: (module.xHp + module.hp) * hpPx,
+      top: module.rackIndex * panelHeightPx,
+      bottom: (module.rackIndex + 1) * panelHeightPx
+    };
+  }
+
+  function rectsIntersect(
+    a: { left: number; top: number; right: number; bottom: number },
+    b: { left: number; top: number; right: number; bottom: number }
+  ) {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+
+  function getPreviewModule(module: RackModuleInstance) {
+    if (!dragState || !dragState.groupIds.includes(module.id)) {
+      return module;
+    }
+
+    const origin = dragState.groupOrigins[module.id];
+    const activeOrigin = dragState.groupOrigins[dragState.id];
+    if (!origin || !activeOrigin) {
+      return module;
+    }
+
+    return {
+      ...module,
+      rackIndex: origin.rackIndex + (dragState.targetRackIndex - activeOrigin.rackIndex),
+      xHp: origin.xHp + (dragState.previewHp - activeOrigin.xHp)
+    };
+  }
+
   function beginModuleDrag(module: RackModuleInstance, event: PointerEvent) {
+    if (event.button === 2) {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatch('moduleContextMenu', { id: module.id, clientX: event.clientX, clientY: event.clientY });
+      return;
+    }
+
     if (event.button !== 0) {
       return;
     }
@@ -145,7 +231,7 @@
     }
 
     const target = event.target as Element | null;
-    if (target?.closest('.wm__knob, .wm__fader, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit, .knob-graphic, .fader-cap, .btn-graphic, .btn-led')) {
+    if (target?.closest('.wm__knob, .wm__fader, .wm__switch, .wm__button, .wm__led_button, .wm__input, .wm__output, .jack-hit, .knob-graphic, .fader-cap, .switch-thumb, .btn-graphic, .btn-led')) {
       return;
     }
 
@@ -160,13 +246,22 @@
 
     const rect = container.getBoundingClientRect();
     const mouseXInContainer = event.clientX - rect.left;
+    const groupIds =
+      selectedModuleIds.length > 1 && selectedModuleIds.includes(module.id) ? selectedModuleIds : [module.id];
+    const groupOrigins = Object.fromEntries(
+      modules
+        .filter((entry) => groupIds.includes(entry.id))
+        .map((entry) => [entry.id, { rackIndex: entry.rackIndex, xHp: entry.xHp }])
+    );
 
     dragState = {
       id: module.id,
       pointerId: event.pointerId,
       targetRackIndex: module.rackIndex,
       previewHp: module.xHp,
-      offsetHp: mouseXInContainer / hpInPixels() - module.xHp
+      offsetHp: mouseXInContainer / hpInPixels() - module.xHp,
+      groupIds,
+      groupOrigins
     };
     clickGuard = {
       pointerId: event.pointerId,
@@ -210,7 +305,16 @@
     const moduleElement = target?.closest<HTMLElement>('[data-module-id]');
     const cableElement = target?.closest<HTMLElement>('[data-cable-id]');
     if (!moduleElement && !cableElement) {
-      dispatch('canvasTap');
+      const point = rootPoint(event.clientX, event.clientY);
+      areaSelectionState = {
+        pointerId: event.pointerId,
+        startX: point.x,
+        startY: point.y,
+        currentX: point.x,
+        currentY: point.y,
+        moved: false
+      };
+      rackRoot.setPointerCapture?.(event.pointerId);
     }
   }
 
@@ -227,12 +331,28 @@
     dispatch('moduleContextMenu', { id, clientX: event.clientX, clientY: event.clientY });
   }
 
+  function openModuleKeyboardMenu(module: RackModuleInstance, event: KeyboardEvent) {
+    const isContextShortcut = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+    if (!isContextShortcut) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    dispatch('moduleContextMenu', {
+      id: module.id,
+      clientX: rect.right,
+      clientY: rect.top + rect.height * 0.5
+    });
+  }
+
   function mmToEm(mm: number) {
     return mm / 5.08;
   }
 
-  function getJackCenter(endpoint: CableEndpoint) {
-    const module = modules.find((entry) => entry.id === endpoint.moduleId);
+  function getJackCenter(endpoint: CableEndpoint, sourceModules = modules, currentDragState = dragState) {
+    const module = sourceModules.find((entry) => entry.id === endpoint.moduleId);
     if (!module || !rackRoot) {
       return null;
     }
@@ -242,8 +362,9 @@
       const hpPx = hpInPixels();
       const mmPx = hpPx / 5.08;
       const panelHeightPx = 128.5 * mmPx;
-      const moduleXHp = dragState?.id === module.id ? dragState.previewHp : module.xHp;
-      const moduleRackIndex = dragState?.id === module.id ? dragState.targetRackIndex : module.rackIndex;
+      const previewModule = currentDragState ? getPreviewModule(module) : module;
+      const moduleXHp = previewModule.xHp;
+      const moduleRackIndex = previewModule.rackIndex;
 
       return {
         x: moduleXHp * hpPx + jackSpec.xMm * mmPx,
@@ -272,6 +393,14 @@
     return `M ${from.x} ${from.y} C ${from.x} ${from.y + tension} ${to.x} ${to.y + tension} ${to.x} ${to.y}`;
   }
 
+  function cableHandlePoint(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const tension = Math.max(32, Math.abs(to.x - from.x) * 0.45);
+    return {
+      x: (from.x + to.x) / 2,
+      y: (from.y + to.y) / 2 + tension * 0.75
+    };
+  }
+
   function beginWiring(event: PointerEvent, endpoint: CableEndpoint) {
     beginCableDrag(event, endpoint);
   }
@@ -289,7 +418,7 @@
     event.preventDefault();
     event.stopPropagation();
 
-    const center = getJackCenter(endpoint);
+    const center = getJackCenter(endpoint, modules, dragState);
     if (!center) {
       return;
     }
@@ -358,16 +487,39 @@
     dispatch('cableTap', { id: cableId });
   }
 
+  function handleCableContextMenu(event: MouseEvent, cableId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    pendingJack = null;
+    dispatch('cableContextMenu', { id: cableId, clientX: event.clientX, clientY: event.clientY });
+  }
+
+  function handleCablePointerDown(event: PointerEvent, cableId: string) {
+    if (event.button !== 2) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    pendingJack = null;
+    dispatch('cableContextMenu', { id: cableId, clientX: event.clientX, clientY: event.clientY });
+  }
+
   function finishWiring(clientX: number, clientY: number) {
     if (!wiringState) {
       return;
     }
+
+    const moved =
+      Math.abs(clientX - wiringState.startClientX) > 4 || Math.abs(clientY - wiringState.startClientY) > 4;
 
     const targetElement = document
       .elementFromPoint(clientX, clientY)
       ?.closest<HTMLElement>('[data-jack-module-id][data-jack-name]');
 
     if (!targetElement) {
+      if (wiringState.replaceCableId && moved) {
+        dispatch('cableDisconnect', { id: wiringState.replaceCableId });
+      }
       wiringState = null;
       return;
     }
@@ -378,6 +530,7 @@
       role: (targetElement.dataset.jackRole as CableEndpoint['role']) ?? 'both'
     };
 
+    let connected = false;
     if (
       endpoint.moduleId &&
       endpoint.jackName &&
@@ -404,13 +557,20 @@
         replaceCableId: wiringState.replaceCableId,
         replaceEndpoint: wiringState.replaceEndpoint
       });
+      connected = true;
+    }
+
+    if (wiringState.replaceCableId && moved && !connected) {
+      dispatch('cableDisconnect', { id: wiringState.replaceCableId });
     }
 
     wiringState = null;
   }
 
   $: modulesByRack = modules.reduce<RackModuleInstance[][]>((racks, module) => {
-    racks[module.rackIndex]?.push(module);
+    const displayedModule =
+      dragState?.groupIds.includes(module.id) ? getPreviewModule(module) : module;
+    racks[displayedModule.rackIndex]?.push(displayedModule);
     return racks;
   }, Array.from({ length: rackCount }, () => []));
 
@@ -419,6 +579,18 @@
 
 <svelte:window
   on:pointermove={(event) => {
+    if (areaSelectionState && event.pointerId === areaSelectionState.pointerId) {
+      const point = rootPoint(event.clientX, event.clientY);
+      const moved =
+        Math.abs(point.x - areaSelectionState.startX) > 4 || Math.abs(point.y - areaSelectionState.startY) > 4;
+      areaSelectionState = {
+        ...areaSelectionState,
+        currentX: point.x,
+        currentY: point.y,
+        moved: areaSelectionState.moved || moved
+      };
+    }
+
     if (clickGuard && event.pointerId === clickGuard.pointerId) {
       const moved =
         Math.abs(event.clientX - clickGuard.startClientX) > 4 || Math.abs(event.clientY - clickGuard.startClientY) > 4;
@@ -465,13 +637,34 @@
     };
   }}
   on:pointerup={(event) => {
+    if (areaSelectionState && event.pointerId === areaSelectionState.pointerId) {
+      const rect = selectionRect();
+      if (rect && areaSelectionState.moved) {
+        const ids = modules.filter((module) => rectsIntersect(rect, moduleRect(module))).map((module) => module.id);
+        dispatch('areaSelectModules', { ids });
+      } else {
+        dispatch('canvasTap');
+      }
+      areaSelectionState = null;
+      rackRoot?.releasePointerCapture?.(event.pointerId);
+    }
+
     if (wiringState && event.pointerId === wiringState.pointerId) {
       finishWiring(event.clientX, event.clientY);
     }
 
     if (dragState && event.pointerId === dragState.pointerId) {
       const dragged = getDraggedModule();
-      if (dragged && canPlaceModule(dragged.id, dragState.targetRackIndex, dragState.previewHp)) {
+      if (dragged && dragState.groupIds.length > 1) {
+        const moves = dragState.groupIds
+          .map((id) => {
+            const module = modules.find((entry) => entry.id === id);
+            return module ? getPreviewModule(module) : null;
+          })
+          .filter((module): module is RackModuleInstance => Boolean(module))
+          .map((module) => ({ id: module.id, rackIndex: module.rackIndex, xHp: module.xHp }));
+        dispatch('moveModules', { moves });
+      } else if (dragged && canPlaceModule(dragged.id, dragState.targetRackIndex, dragState.previewHp)) {
         dispatch('moveModule', {
           id: dragged.id,
           rackIndex: dragState.targetRackIndex,
@@ -490,6 +683,9 @@
     }
   }}
   on:pointercancel={(event) => {
+    if (areaSelectionState && event.pointerId === areaSelectionState.pointerId) {
+      areaSelectionState = null;
+    }
     if (dragState && event.pointerId === dragState.pointerId) {
       dragState = null;
     }
@@ -509,11 +705,22 @@
   style={`font-size:${hpUnitPx}px; width: calc(${totalHp} * var(--hp)); min-width: calc(${totalHp} * var(--hp));`}
   on:pointerdown={onCanvasPointerDown}
 >
+  {#if areaSelectionState && selectionRect()}
+    {@const rect = selectionRect()}
+    {#if rect}
+      <div
+        class="area-selection-box"
+        style={`left:${rect.left}px; top:${rect.top}px; width:${rect.width}px; height:${rect.height}px;`}
+      ></div>
+    {/if}
+  {/if}
+
   <svg class="cable-layer" aria-hidden="true">
     {#each cables as cable (cable.id)}
-      {@const fromCenter = getJackCenter(cable.from)}
-      {@const toCenter = getJackCenter(cable.to)}
+      {@const fromCenter = getJackCenter(cable.from, modules, dragState)}
+      {@const toCenter = getJackCenter(cable.to, modules, dragState)}
       {@const cablePath = fromCenter && toCenter ? buildCablePath(fromCenter, toCenter) : null}
+      {@const handlePoint = fromCenter && toCenter ? cableHandlePoint(fromCenter, toCenter) : null}
       {@const cableIsFocused = selectedCableId === cable.id || hoveredCableId === cable.id}
       {#if fromCenter && toCenter}
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -533,7 +740,9 @@
               hoveredCableId = null;
             }
           }}
+          on:pointerdown={(event) => handleCablePointerDown(event, cable.id)}
           on:click={(event) => handleCableClick(event, cable.id)}
+          on:contextmenu={(event) => handleCableContextMenu(event, cable.id)}
         />
         <path
           d={cablePath}
@@ -562,6 +771,28 @@
           class:cable-focused={cableIsFocused}
           class="cable-path cable-highlight"
         />
+        {#if handlePoint}
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+          <circle
+            class:cable-focused={cableIsFocused}
+            class="cable-midpoint-handle"
+            cx={handlePoint.x}
+            cy={handlePoint.y}
+            r={7}
+            data-cable-id={cable.id}
+            on:pointerenter={() => {
+              hoveredCableId = cable.id;
+            }}
+            on:pointerleave={() => {
+              if (hoveredCableId === cable.id) {
+                hoveredCableId = null;
+              }
+            }}
+            on:pointerdown={(event) => handleCablePointerDown(event, cable.id)}
+            on:click={(event) => handleCableClick(event, cable.id)}
+            on:contextmenu={(event) => handleCableContextMenu(event, cable.id)}
+          />
+        {/if}
         {#if selectedCableId === cable.id}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <circle
@@ -584,7 +815,7 @@
     {/each}
 
     {#if wiringState}
-      {@const fromCenter = getJackCenter(wiringState.from)}
+      {@const fromCenter = getJackCenter(wiringState.from, modules, dragState)}
       {@const activePath = fromCenter ? buildCablePath(fromCenter, { x: wiringState.x, y: wiringState.y }) : null}
       {#if fromCenter}
         <path
@@ -623,10 +854,14 @@
       <div class="modules-container">
         {#each modulesByRack[rackIndex] ?? [] as module (module.id)}
           {@const isDraggingSource = dragState?.id === module.id}
+          {@const isGroupDragging = Boolean(dragState?.groupIds.includes(module.id))}
+          {@const isDragPlacementValid =
+            !isDraggingSource || canPlaceModule(module.id, module.rackIndex, module.xHp)}
           <div
             class="module"
-            class:selected={selectedId === module.id}
-            class:drag-source={isDraggingSource}
+            class:selected={selectedId === module.id || selectedModuleIds.includes(module.id)}
+            class:drag-source={isGroupDragging}
+            class:invalid-drag={isDraggingSource && !isDragPlacementValid}
             data-module-id={module.id}
             role="button"
             tabindex="0"
@@ -638,7 +873,9 @@
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 onModuleClick(module.id);
+                return;
               }
+              openModuleKeyboardMenu(module, event);
             }}
           >
             <ModuleRenderer
@@ -682,18 +919,6 @@
           </div>
         {/each}
 
-        {#if dragState?.targetRackIndex === rackIndex}
-          {@const dragged = getDraggedModule()}
-          {#if dragged}
-            <div
-              class="module ghost-module {canPlaceModule(dragged.id, rackIndex, dragState.previewHp) ? '' : 'invalid'}"
-              style={`width: calc(${dragged.hp} * var(--hp)); left: ${dragState.previewHp}em;`}
-            >
-              <ModuleRenderer kind={dragged.kind} hp={dragged.hp} interactive={false} />
-            </div>
-          {/if}
-        {/if}
-
         {#if palettePreview?.rackIndex === rackIndex && paletteGhost}
           <div
             class="module ghost-module {palettePreview.valid ? '' : 'invalid'}"
@@ -705,4 +930,53 @@
       </div>
     </div>
   {/each}
+
+  <svg class="cable-handle-layer" aria-hidden="true">
+    {#each cables as cable (cable.id)}
+      {@const fromCenter = getJackCenter(cable.from, modules, dragState)}
+      {@const toCenter = getJackCenter(cable.to, modules, dragState)}
+      {@const handlePoint = fromCenter && toCenter ? cableHandlePoint(fromCenter, toCenter) : null}
+      {@const cableIsFocused = selectedCableId === cable.id || hoveredCableId === cable.id}
+      {#if fromCenter && toCenter && handlePoint}
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <circle
+          class:cable-focused={cableIsFocused}
+          class="cable-midpoint-handle"
+          cx={handlePoint.x}
+          cy={handlePoint.y}
+          r={7}
+          data-cable-id={cable.id}
+          on:pointerenter={() => {
+            hoveredCableId = cable.id;
+          }}
+          on:pointerleave={() => {
+            if (hoveredCableId === cable.id) {
+              hoveredCableId = null;
+            }
+          }}
+          on:pointerdown={(event) => handleCablePointerDown(event, cable.id)}
+          on:click={(event) => handleCableClick(event, cable.id)}
+          on:contextmenu={(event) => handleCableContextMenu(event, cable.id)}
+        />
+      {/if}
+      {#if selectedCableId === cable.id && fromCenter && toCenter}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <circle
+          class="cable-endpoint-handle"
+          cx={fromCenter.x}
+          cy={fromCenter.y}
+          r={8}
+          on:pointerdown={(event) => beginCableEndpointMove(event, cable, 'from')}
+        />
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <circle
+          class="cable-endpoint-handle"
+          cx={toCenter.x}
+          cy={toCenter.y}
+          r={8}
+          on:pointerdown={(event) => beginCableEndpointMove(event, cable, 'to')}
+        />
+      {/if}
+    {/each}
+  </svg>
 </div>

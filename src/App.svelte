@@ -1,33 +1,26 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import RackCanvas from './lib/components/RackCanvas.svelte';
-  import ModuleRenderer from './lib/components/ModuleRenderer.svelte';
   import { createWasmodEngine } from './lib/engine/createEngine';
-  import { moduleCatalog, moduleOrder, RACK_TOTAL_HP } from './lib/moduleCatalog';
-  import type {
-    ModuleKind,
-    PatchCable,
-    PendingCableConnection,
-    RackModuleInstance,
-    WasmodEngine,
-    WasmodEngineDiagnostics
-  } from './lib/types';
+  import { moduleCatalog, moduleOrder, RACK_TOTAL_HP, RACK_COUNT } from './lib/moduleCatalog';
+  import TopBar from './lib/components/layout/TopBar.svelte';
+  import RackContainer from './lib/components/layout/RackContainer.svelte';
+  import ModulePalette from './lib/components/layout/ModulePalette.svelte';
+  import SelectionManager from './lib/components/layout/SelectionManager.svelte';
+  import type { ModuleKind, RackModuleInstance, PatchCable, PaletteGhost, WasmodEngine } from './lib/types';
 
-  type PaletteGhost = {
-    kind: ModuleKind;
-    x: number;
-    y: number;
-    active: boolean;
-    pointerId: number;
-  } | null;
+  // Constants
+  const PATCH_STORAGE_KEY = 'wasmod.patch.v1';
 
+  // State
   let modules: RackModuleInstance[] = [];
   let cables: PatchCable[] = [];
   let selectedId: string | null = null;
+  let selectedModuleIds: string[] = [];
   let selectedCableId: string | null = null;
   let actionMenuId: string | null = null;
+  let actionMenuKind: 'module' | 'cable' | null = null;
   let instanceCounter = 1;
-  let paletteGhost: PaletteGhost = null;
+  let paletteGhost: PaletteGhost | null = null;
   let paletteFilter = '';
   let paletteType = 'all';
   let paletteOpen = true;
@@ -35,7 +28,6 @@
   let rackUnitPx = 20;
   let menuPosition: { x: number; y: number; side: 'left' | 'right' } | null = null;
   let engine: WasmodEngine | null = null;
-  let engineBackend = 'mock';
   let isPlaying = false;
   let masterVolume = 0.72;
   let meterValue = 0;
@@ -50,59 +42,118 @@
     frameWidth: 0,
     frameHeight: 0
   };
-  const CABLE_COLORS = ['#f4f4f5', '#ff7a59', '#5ac8fa', '#30d158', '#ffd60a', '#bf5af2'];
 
-  onMount(() => {
-    let unsubscribeMeter: (() => void) | undefined;
-    let unsubscribeDiagnostics: (() => void) | undefined;
-    let disposed = false;
+  // Computed properties
+  $: selectedModule = modules.find((m) => m.id === selectedId) ?? null;
+  $: selectedCable = cables.find((c) => c.id === selectedCableId) ?? null;
+  $: selectedModuleCableCount = cables.filter(
+    (c) => c.from.moduleId === selectedId || c.to.moduleId === selectedId
+  ).length;
 
-    const init = async () => {
-      modules = [];
-      cables = [];
+  $: filteredModuleOrder = moduleOrder.filter((kind) => {
+    const entry = moduleCatalog[kind];
+    const query = paletteFilter.trim().toLowerCase();
+    const typeMatch = paletteType === 'all' || entry.moduleType === paletteType;
+    if (!typeMatch) return false;
+    if (!query) return true;
+    return (
+      entry.name.toLowerCase().includes(query) ||
+      entry.description.toLowerCase().includes(query) ||
+      `${entry.hp}hp`.includes(query)
+    );
+  });
 
-      const created = await createWasmodEngine();
-      if (disposed) {
-        await created.destroy();
-        return;
-      }
+  $: if (canvasScrollEl) {
+    modules;
+    tick().then(updateMinimap);
+  }
 
-      engine = created;
-      engineBackend = created.backend;
-      engine.setMasterVolume(masterVolume);
+  $: if (actionMenuId) {
+    modules;
+    tick().then(updateMenuPosition);
+  }
 
-      unsubscribeMeter = created.subscribeMeter((value) => {
-        meterValue = value;
-      });
-      if ('subscribeDiagnostics' in created && typeof created.subscribeDiagnostics === 'function') {
-        unsubscribeDiagnostics = created.subscribeDiagnostics(() => {});
-      }
+  // Lifecycle
+  onMount(async () => {
+    // Create engine first
+    const created = await createWasmodEngine();
+    engine = created;
+    engine.setMasterVolume(masterVolume);
 
-      modules = [
-        { id: 'vco4-1', kind: 'vco4', hp: moduleCatalog.vco4.hp, xHp: 0, rackIndex: 0 },
-        { id: 'speaker4-2', kind: 'speaker4', hp: moduleCatalog.speaker4.hp, xHp: 4, rackIndex: 0 },
-        { id: 'junction4-3', kind: 'junction4', hp: moduleCatalog.junction4.hp, xHp: 8, rackIndex: 0 },
-        { id: 'junction4-4', kind: 'junction4', hp: moduleCatalog.junction4.hp, xHp: 0, rackIndex: 1 }
-      ];
-      instanceCounter = 5;
-      selectedId = 'junction4-4';
-      tick().then(updateMinimap);
-    };
+    const unsubscribeMeter = created.subscribeMeter((value) => {
+      meterValue = value;
+    });
 
-    void init();
+    // Add starter modules
+    modules = [];
+    cables = [];
+    addModuleAt('vco4', 0, 0);
+    addModuleAt('speaker4', 0, 6);
+    tick().then(updateMinimap);
 
     return () => {
-      disposed = true;
       unsubscribeMeter?.();
-      unsubscribeDiagnostics?.();
       engine?.destroy();
     };
   });
 
-  function updateMinimap() {
-    if (!canvasScrollEl) {
-      return;
+  // Helper functions
+  function firstAvailableHp(hp: number, rackIndex: number, ignoreId?: string) {
+    for (let start = 0; start <= RACK_TOTAL_HP - hp; start += 1) {
+      const isBlocked = modules.some((entry) => {
+        if (entry.rackIndex !== rackIndex) return false;
+        if (ignoreId && entry.id === ignoreId) return false;
+        return start < entry.xHp + entry.hp && start + hp > entry.xHp;
+      });
+      if (!isBlocked) return start;
     }
+    return null;
+  }
+
+  function canPlaceSpan(rackIndex: number, xHp: number, hp: number, ignoreId?: string) {
+    if (xHp < 0 || xHp + hp > RACK_TOTAL_HP) return false;
+    return modules.every((entry) => {
+      if (entry.rackIndex !== rackIndex) return true;
+      if (ignoreId && entry.id === ignoreId) return true;
+      return xHp + hp <= entry.xHp || xHp >= entry.xHp + entry.hp;
+    });
+  }
+
+  function canPlaceModule(moduleId: string, rackIndex: number, nextHp: number) {
+    const target = modules.find((entry) => entry.id === moduleId);
+    return target ? canPlaceSpan(rackIndex, nextHp, target.hp, moduleId) : false;
+  }
+
+  function canPlaceNewModule(kind: ModuleKind, rackIndex: number, nextHp: number) {
+    return canPlaceSpan(rackIndex, nextHp, moduleCatalog[kind].hp);
+  }
+
+  function addModuleAt(kind: ModuleKind, rackIndex: number, xHp?: number) {
+    const hp = moduleCatalog[kind].hp;
+    const slot = xHp ?? firstAvailableHp(hp, rackIndex);
+    if (slot === null || !canPlaceSpan(rackIndex, slot, hp)) return;
+
+    const instance: RackModuleInstance = {
+      id: `${kind}-${instanceCounter++}`,
+      kind,
+      hp,
+      xHp: slot,
+      rackIndex
+    };
+
+    modules = [...modules, instance];
+    selectedId = instance.id;
+    selectedModuleIds = [instance.id];
+    selectedCableId = null;
+    actionMenuId = null;
+    tick().then(() => {
+      updateMinimap();
+      revealSelectedModule();
+    });
+  }
+
+  function updateMinimap() {
+    if (!canvasScrollEl) return;
 
     updateRackUnit();
 
@@ -129,9 +180,7 @@
   }
 
   function updateRackUnit() {
-    if (!canvasScrollEl) {
-      return;
-    }
+    if (!canvasScrollEl) return;
 
     const horizontalPadding = 48;
     const availableWidth = Math.max(320, canvasScrollEl.clientWidth - horizontalPadding);
@@ -139,9 +188,7 @@
   }
 
   function revealSelectedModule() {
-    if (!canvasScrollEl || !selectedId) {
-      return;
-    }
+    if (!canvasScrollEl || !selectedId) return;
 
     const selectedModule = canvasScrollEl.querySelector<HTMLElement>(`[data-module-id="${selectedId}"]`);
     selectedModule?.scrollIntoView({
@@ -166,274 +213,25 @@
     const menuWidth = 124;
     const menuHeight = 78;
     const gutter = 10;
-    const side: 'left' | 'right' =
-      rect.right + gutter + menuWidth < window.innerWidth ? 'right' : 'left';
+    const side: 'left' | 'right' = rect.right + gutter + menuWidth < window.innerWidth ? 'right' : 'left';
     const x = side === 'right' ? rect.right + gutter : rect.left - gutter - menuWidth;
     const y = Math.min(
       Math.max(8, rect.top + rect.height * 0.5 - menuHeight * 0.5),
       window.innerHeight - menuHeight - 8
     );
 
-    menuPosition = {
-      x,
-      y,
-      side
-    };
+    menuPosition = { x, y, side };
   }
 
-  function firstAvailableHp(hp: number, rackIndex: number, ignoreId?: string) {
-    for (let start = 0; start <= RACK_TOTAL_HP - hp; start += 1) {
-      const isBlocked = modules.some((entry) => {
-        if (entry.rackIndex !== rackIndex) {
-          return false;
-        }
-        if (ignoreId && entry.id === ignoreId) {
-          return false;
-        }
-        return start < entry.xHp + entry.hp && start + hp > entry.xHp;
-      });
-      if (!isBlocked) {
-        return start;
-      }
-    }
-    return null;
-  }
-
-  function canPlaceSpan(rackIndex: number, xHp: number, hp: number, ignoreId?: string) {
-    if (xHp < 0 || xHp + hp > RACK_TOTAL_HP) {
-      return false;
-    }
-
-    return modules.every((entry) => {
-      if (entry.rackIndex !== rackIndex) {
-        return true;
-      }
-      if (ignoreId && entry.id === ignoreId) {
-        return true;
-      }
-      return xHp + hp <= entry.xHp || xHp >= entry.xHp + entry.hp;
-    });
-  }
-
-  function canPlaceModule(moduleId: string, rackIndex: number, nextHp: number) {
-    const target = modules.find((entry) => entry.id === moduleId);
-    return target ? canPlaceSpan(rackIndex, nextHp, target.hp, moduleId) : false;
-  }
-
-  function canPlaceNewModule(kind: ModuleKind, rackIndex: number, nextHp: number) {
-    return canPlaceSpan(rackIndex, nextHp, moduleCatalog[kind].hp);
-  }
-
-  function addModuleAt(kind: ModuleKind, rackIndex: number, xHp?: number) {
-    const hp = moduleCatalog[kind].hp;
-    const slot = xHp ?? firstAvailableHp(hp, rackIndex);
-    if (slot === null || !canPlaceSpan(rackIndex, slot, hp)) {
-      return;
-    }
-
-    const instance: RackModuleInstance = {
-      id: `${kind}-${instanceCounter++}`,
-      kind,
-      hp,
-      xHp: slot,
-      rackIndex
-    };
-
-    modules = [...modules, instance];
-    selectedId = instance.id;
-    actionMenuId = null;
-    tick().then(() => {
-      updateMinimap();
-      revealSelectedModule();
-    });
-  }
-
-  function beginPaletteDrag(kind: ModuleKind, event: PointerEvent) {
-    if (event.button !== 0) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    paletteGhost = {
-      kind,
-      x: event.clientX,
-      y: event.clientY,
-      active: true,
-      pointerId: event.pointerId
-    };
-  }
-
-  function dropPaletteModule(clientX: number, clientY: number) {
-    if (!paletteGhost?.active) {
-      return;
-    }
-
-    const rackFrames = Array.from(document.querySelectorAll<HTMLElement>('.rack-frame'));
-    const targetRackIndex = rackFrames.findIndex((frame) => {
-      const rect = frame.getBoundingClientRect();
-      return clientY >= rect.top - 5 && clientY <= rect.bottom + 5;
-    });
-
-    if (targetRackIndex === -1) {
-      return;
-    }
-
-    const container = rackFrames[targetRackIndex]?.querySelector<HTMLElement>('.modules-container');
-    if (!container) {
-      return;
-    }
-
-    const rect = container.getBoundingClientRect();
-    const hpPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    const hp = moduleCatalog[paletteGhost.kind].hp;
-    const rawHp = Math.round((clientX - rect.left - (hp * hpPx) / 2) / hpPx);
-    const nextHp = Math.max(0, Math.min(RACK_TOTAL_HP - hp, rawHp));
-
-    if (canPlaceNewModule(paletteGhost.kind, targetRackIndex, nextHp)) {
-      addModuleAt(paletteGhost.kind, targetRackIndex, nextHp);
-    }
-  }
-
-  function handleModuleTap(id: string) {
-    selectedId = id;
-    selectedCableId = null;
-    actionMenuId = null;
-  }
-
-  function handleModuleContextMenu(id: string, clientX: number, clientY: number) {
-    selectedId = id;
-    selectedCableId = null;
-    actionMenuId = id;
-    tick().then(() => {
-      updateMenuPosition();
-    });
-  }
-
-  function clearSelection() {
-    selectedId = null;
-    selectedCableId = null;
-    actionMenuId = null;
-    menuPosition = null;
-  }
-
-  function nextCableColor() {
-    return CABLE_COLORS[cables.length % CABLE_COLORS.length];
-  }
-
-  function sameEndpoint(a: PatchCable['from'], b: PatchCable['from']) {
-    return a.moduleId === b.moduleId && a.jackName === b.jackName && a.role === b.role;
-  }
-
-  function cablesForModule(moduleId: string) {
-    return cables.filter((cable) => cable.from.moduleId === moduleId || cable.to.moduleId === moduleId);
-  }
-
-  function removeCables(targetCables: PatchCable[]) {
-    if (targetCables.length === 0) {
-      return;
-    }
-
-    const cableIds = new Set(targetCables.map((cable) => cable.id));
-    cables = cables.filter((cable) => !cableIds.has(cable.id));
-    if (selectedCableId && cableIds.has(selectedCableId)) {
-      selectedCableId = null;
-    }
-    engine?.setConnections(cables);
-  }
-
-  function removeSelectedCable() {
-    if (!selectedCableId) {
-      return;
-    }
-
-    const target = cables.find((cable) => cable.id === selectedCableId);
-    if (!target) {
-      selectedCableId = null;
-      return;
-    }
-
-    removeCables([target]);
-  }
-
-  function duplicateSelected() {
-    if (!selectedId) {
-      return;
-    }
-
-    const selected = modules.find((entry) => entry.id === selectedId);
-    if (!selected) {
-      return;
-    }
-
-    const immediateSlot = selected.xHp + selected.hp;
-    const slot = canPlaceSpan(selected.rackIndex, immediateSlot, selected.hp)
-      ? immediateSlot
-      : firstAvailableHp(selected.hp, selected.rackIndex);
-
-    if (slot !== null) {
-      addModuleAt(selected.kind, selected.rackIndex, slot);
-    }
-  }
-
-  function removeSelected() {
-    if (!selectedId) {
-      return;
-    }
-
-    removeCables(cablesForModule(selectedId));
-    modules = modules.filter((entry) => entry.id !== selectedId);
-    selectedId = null;
-    actionMenuId = null;
-    menuPosition = null;
-  }
-
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Delete' && event.key !== 'Backspace') {
-      return;
-    }
-
-    const target = event.target as HTMLElement | null;
-    if (
-      target &&
-      (target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable ||
-        target.tagName === 'SELECT')
-    ) {
-      return;
-    }
-
-    if (selectedCableId) {
-      event.preventDefault();
-      removeSelectedCable();
-      return;
-    }
-
-    if (selectedId) {
-      event.preventDefault();
-      removeSelected();
-    }
-  }
-
-  function togglePalette() {
-    paletteOpen = !paletteOpen;
-  }
-
+  // Audio functions
   async function startAudio() {
-    if (!engine) {
-      return;
-    }
-    engine.setConnections(cables);
+    if (!engine) return;
     await engine.start();
     isPlaying = true;
   }
 
   async function stopAudio() {
-    if (!engine) {
-      return;
-    }
+    if (!engine) return;
     await engine.stop();
     isPlaying = false;
     meterValue = 0;
@@ -448,239 +246,329 @@
     engine?.setParameter(moduleId, paramName, value);
   }
 
-  function handleCableConnect(connection: PendingCableConnection) {
-    const baseCables = connection.replaceCableId
-      ? cables.filter((cable) => cable.id !== connection.replaceCableId)
-      : cables;
+  // Module functions
+  function handleModuleTap(id: string) {
+    selectedId = id;
+    selectedModuleIds = [id];
+    selectedCableId = null;
+    actionMenuId = null;
+    actionMenuKind = null;
+  }
 
-    if (
-      connection.replaceCableId &&
-      connection.replaceEndpoint &&
-      sameEndpoint(connection.from, connection.to)
-    ) {
-      return;
+  function handleModuleContextMenu(id: string, clientX: number, clientY: number) {
+    selectedId = id;
+    selectedModuleIds = [id];
+    selectedCableId = null;
+    actionMenuId = id;
+    actionMenuKind = 'module';
+    tick().then(() => {
+      updateMenuPosition();
+    });
+  }
+
+  function handleAreaSelect(ids: string[]) {
+    selectedModuleIds = ids;
+    selectedId = ids[0] ?? null;
+    selectedCableId = null;
+    actionMenuId = null;
+    actionMenuKind = null;
+  }
+
+  function handleCableContextMenu(id: string, clientX: number, clientY: number) {
+    selectedCableId = id;
+    selectedId = null;
+    selectedModuleIds = [];
+    actionMenuId = id;
+    actionMenuKind = 'cable';
+    tick().then(() => {
+      updateMenuPosition();
+    });
+  }
+
+  function clearSelection() {
+    selectedId = null;
+    selectedModuleIds = [];
+    selectedCableId = null;
+    actionMenuId = null;
+    actionMenuKind = null;
+    menuPosition = null;
+  }
+
+  function nextCableColor() {
+    const colors = ['#f4f4f5', '#ff7a59', '#5ac8fa', '#30d158', '#ffd60a', '#bf5af2'];
+    return colors[cables.length % colors.length];
+  }
+
+  function sameEndpoint(a: PatchCable['from'], b: PatchCable['from']) {
+    return a.moduleId === b.moduleId && a.jackName === b.jackName && a.role === b.role;
+  }
+
+  function cablesForModule(moduleId: string) {
+    return cables.filter((cable) => cable.from.moduleId === moduleId || cable.to.moduleId === moduleId);
+  }
+
+  function removeCables(targetCables: PatchCable[]) {
+    if (targetCables.length === 0) return;
+
+    const cableIds = new Set(targetCables.map((cable) => cable.id));
+    cables = cables.filter((cable) => !cableIds.has(cable.id));
+    targetCables.forEach((cable) => {
+      engine?.disconnect(cable.id);
+    });
+  }
+
+  function removeSelectedCable() {
+    if (!selectedCableId) return;
+    const target = cables.find((c) => c.id === selectedCableId);
+    if (target) {
+      removeCables([target]);
     }
+    selectedCableId = null;
+    selectedId = null;
+    selectedModuleIds = [];
+  }
 
-    const duplicate = baseCables.some(
+  function duplicateSelected() {
+    if (!selectedId) return;
+
+    const selected = modules.find((entry) => entry.id === selectedId);
+    if (!selected) return;
+
+    const immediateSlot = selected.xHp + selected.hp;
+    const slot = canPlaceSpan(selected.rackIndex, immediateSlot, selected.hp)
+      ? immediateSlot
+      : firstAvailableHp(selected.hp, selected.rackIndex);
+
+    if (slot !== null) {
+      addModuleAt(selected.kind, selected.rackIndex, slot);
+    }
+  }
+
+  function removeSelected() {
+    if (!selectedId) return;
+
+    removeCables(cablesForModule(selectedId));
+    modules = modules.filter((entry) => entry.id !== selectedId);
+    selectedId = null;
+    selectedModuleIds = [];
+    actionMenuId = null;
+    actionMenuKind = null;
+    menuPosition = null;
+  }
+
+  function disconnectSelectedModule() {
+    if (!selectedId) return;
+    const moduleCables = cablesForModule(selectedId);
+    removeCables(moduleCables);
+  }
+
+  function cycleSelectedCableColor() {
+    if (!selectedCableId) return;
+
+    const colors = ['#f4f4f5', '#ff7a59', '#5ac8fa', '#30d158', '#ffd60a', '#bf5af2'];
+    const currentColorIndex = colors.indexOf(cables.find((c) => c.id === selectedCableId)?.color ?? '');
+    const nextColorIndex = (currentColorIndex + 1) % colors.length;
+
+    cables = cables.map((cable) =>
+      cable.id === selectedCableId ? { ...cable, color: colors[nextColorIndex] } : cable
+    );
+  }
+
+  function openSelectedContextMenu(kind: 'module' | 'cable') {
+    // Context menu logic would go here
+    console.log('Open context menu for', kind);
+  }
+
+  // Cable functions
+  function handleCableConnect(connection: { from: any; to: any }) {
+    const duplicate = cables.some(
       (cable) =>
         (sameEndpoint(cable.from, connection.from) && sameEndpoint(cable.to, connection.to)) ||
         (sameEndpoint(cable.from, connection.to) && sameEndpoint(cable.to, connection.from))
     );
 
-    if (duplicate) {
-      return;
-    }
-
-    const replacedCable = connection.replaceCableId
-      ? cables.find((cable) => cable.id === connection.replaceCableId)
-      : undefined;
+    if (duplicate) return;
 
     const cable: PatchCable = {
-      id:
-        connection.replaceCableId ??
-        `cable-${connection.from.moduleId}-${connection.from.jackName}-${connection.to.moduleId}-${connection.to.jackName}-${Date.now()}`,
-      color: replacedCable?.color ?? nextCableColor(),
+      id: `cable-${connection.from.moduleId}-${connection.from.jackName}-${connection.to.moduleId}-${connection.to.jackName}-${Date.now()}`,
+      color: nextCableColor(),
       from: connection.from,
       to: connection.to
     };
 
-    cables = [...baseCables, cable];
-    selectedCableId = cable.id;
-    selectedId = null;
-    engine?.setConnections(cables);
+    cables = [...cables, cable];
+    engine?.connect(cable.from, cable.to);
   }
 
-  $: filteredModuleOrder = moduleOrder.filter((kind) => {
-    const entry = moduleCatalog[kind];
-    const query = paletteFilter.trim().toLowerCase();
-    const typeMatch = paletteType === 'all' || entry.moduleType === paletteType;
-    if (!typeMatch) {
-      return false;
+  // Palette functions
+  function beginPaletteDrag(kind: ModuleKind, event: PointerEvent) {
+    if (event.button !== 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    paletteGhost = {
+      kind,
+      x: event.clientX,
+      y: event.clientY,
+      active: true,
+      pointerId: event.pointerId
+    };
+  }
+
+  function dropPaletteModule(clientX: number, clientY: number) {
+    if (!paletteGhost?.active) return;
+
+    const rackFrames = Array.from(document.querySelectorAll<HTMLElement>('.rack-frame'));
+    const targetRackIndex = rackFrames.findIndex((frame) => {
+      const rect = frame.getBoundingClientRect();
+      return clientY >= rect.top - 5 && clientY <= rect.bottom + 5;
+    });
+
+    if (targetRackIndex === -1) return;
+
+    const container = rackFrames[targetRackIndex]?.querySelector<HTMLElement>('.modules-container');
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const hpPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const hp = moduleCatalog[paletteGhost.kind].hp;
+    const rawHp = Math.round((clientX - rect.left - (hp * hpPx) / 2) / hpPx);
+    const nextHp = Math.max(0, Math.min(RACK_TOTAL_HP - hp, rawHp));
+
+    if (canPlaceNewModule(paletteGhost.kind, targetRackIndex, nextHp)) {
+      addModuleAt(paletteGhost.kind, targetRackIndex, nextHp);
     }
-    if (!query) {
-      return true;
-    }
-    return (
-      entry.name.toLowerCase().includes(query) ||
-      entry.description.toLowerCase().includes(query) ||
-      `${entry.hp}hp`.includes(query)
+
+    paletteGhost = null;
+  }
+
+  function togglePalette() {
+    paletteOpen = !paletteOpen;
+  }
+
+  // Module move functions
+  function handleModuleMove(details: { id: string; rackIndex: number; xHp: number }) {
+    modules = modules.map((entry) =>
+      entry.id === details.id ? { ...entry, rackIndex: details.rackIndex, xHp: details.xHp } : entry
     );
-  });
-
-  $: if (canvasScrollEl) {
-    modules;
-    tick().then(updateMinimap);
+    selectedId = details.id;
+    selectedModuleIds = [details.id];
+    tick().then(() => {
+      updateMinimap();
+      revealSelectedModule();
+    });
   }
 
-  $: if (actionMenuId) {
-    modules;
-    tick().then(updateMenuPosition);
+  function handleModuleMoves(moves: Array<{ id: string; rackIndex: number; xHp: number }>) {
+    modules = modules.map((entry) => {
+      const move = moves.find((m) => m.id === entry.id);
+      return move ? { ...entry, rackIndex: move.rackIndex, xHp: move.xHp } : entry;
+    });
   }
-</script>
 
-<svelte:window
-  on:resize={updateMinimap}
-  on:scroll={updateMenuPosition}
-  on:keydown={handleKeydown}
-  on:pointermove={(event) => {
+  // Event handlers for window
+  function handleWindowPointerMove(event: PointerEvent) {
     if (paletteGhost?.active && event.pointerId === paletteGhost.pointerId) {
       paletteGhost = { ...paletteGhost, x: event.clientX, y: event.clientY };
     }
-  }}
-  on:pointerup={(event) => {
+  }
+
+  function handleWindowPointerUp(event: PointerEvent) {
     if (paletteGhost?.active && event.pointerId === paletteGhost.pointerId) {
       dropPaletteModule(event.clientX, event.clientY);
       paletteGhost = null;
     }
-  }}
-/>
+  }
+</script>
 
 <svelte:head>
   <title>WasMod</title>
 </svelte:head>
 
 <div class="app-shell">
-  <header class="topbar">
-    <h1>WasMod</h1>
-    <div class="transport">
-      <button type="button" class="transport-button" on:click={isPlaying ? stopAudio : startAudio}>
-        {isPlaying ? 'Stop' : 'Play'}
-      </button>
-      <label class="master-control">
-        <span>Master</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={masterVolume}
-          on:input={(event) => handleMasterVolumeInput(Number((event.currentTarget as HTMLInputElement).value))}
-        />
-      </label>
-      <div class="vu-cluster" aria-label={`Output meter ${meterValue.toFixed(2)}`}>
-        <span class:active={meterValue > 0.08} class="vu-light green"></span>
-        <span class:active={meterValue > 0.52} class="vu-light yellow"></span>
-        <span class:active={meterValue > 0.9} class="vu-light red"></span>
-      </div>
-      <span class="backend-chip">{engineBackend}</span>
-    </div>
-  </header>
+  <TopBar
+    {isPlaying}
+    {masterVolume}
+    {meterValue}
+    engineBackend={engine?.backend ?? 'mock'}
+    onStartAudio={startAudio}
+    onStopAudio={stopAudio}
+    onMasterVolumeChange={handleMasterVolumeInput}
+  />
 
   <main class="workspace">
-    <section class="canvas-wrap">
-      <div bind:this={canvasScrollEl} class="canvas-scroll" on:scroll={updateMinimap}>
-        <RackCanvas
-          {modules}
-          {cables}
-          rackCount={8}
-          totalHp={RACK_TOTAL_HP}
-          hpUnitPx={rackUnitPx}
-          {selectedId}
-          {selectedCableId}
-          {paletteGhost}
-          nextCableColor={nextCableColor()}
-          {canPlaceModule}
-          {canPlaceNewModule}
-          on:canvasTap={clearSelection}
-          on:moduleTap={(event) => handleModuleTap(event.detail.id)}
-          on:cableTap={(event) => {
-            selectedCableId = event.detail.id;
-            selectedId = null;
-            actionMenuId = null;
-          }}
-          on:moduleContextMenu={(event) =>
-            handleModuleContextMenu(event.detail.id, event.detail.clientX, event.detail.clientY)}
-          on:parameterChange={(event) =>
-            handleParameterChange(event.detail.moduleId, event.detail.paramName, event.detail.value)}
-          on:cableConnect={(event) => handleCableConnect(event.detail)}
-          on:moveModule={(event) => {
-            modules = modules.map((entry) =>
-              entry.id === event.detail.id
-                ? { ...entry, rackIndex: event.detail.rackIndex, xHp: event.detail.xHp }
-                : entry
-            );
-            selectedId = event.detail.id;
-            tick().then(() => {
-              updateMinimap();
-              revealSelectedModule();
-            });
-          }}
-        />
-      </div>
+    <RackContainer
+      {modules}
+      {cables}
+      {selectedId}
+      {selectedModuleIds}
+      {selectedCableId}
+      {paletteGhost}
+      {rackUnitPx}
+      rackCount={RACK_COUNT}
+      totalHp={RACK_TOTAL_HP}
+      {minimap}
+      {canPlaceModule}
+      {canPlaceNewModule}
+      nextCableColor={nextCableColor}
+      updateMinimap={updateMinimap}
+      canvasScrollEl={canvasScrollEl}
+      onCanvasTap={clearSelection}
+      onModuleTap={handleModuleTap}
+      onAreaSelect={handleAreaSelect}
+      onCableTap={(event) => {
+        selectedCableId = event.detail.id;
+        selectedId = null;
+        selectedModuleIds = [];
+        actionMenuId = null;
+        actionMenuKind = null;
+      }}
+      onModuleContextMenu={handleModuleContextMenu}
+      onCableContextMenu={handleCableContextMenu}
+      onCableDisconnect={(event) => {
+        const target = cables.find((cable) => cable.id === event.detail.id);
+        if (target) {
+          removeCables([target]);
+        }
+      }}
+      onParameterChange={handleParameterChange}
+      onCableConnect={handleCableConnect}
+      onMoveModule={handleModuleMove}
+      onMoveModules={handleModuleMoves}
+    />
 
-      <div class="minimap">
-        <div
-          class="minimap-frame"
-          style={`width:${minimap.frameWidth}px; height:${minimap.frameHeight}px;`}
-        >
-          {#if minimap.contentWidth > 0}
-            {#each modules as module (module.id)}
-              <div
-                class="minimap-module"
-                style={`left:${module.xHp * rackUnitPx * minimap.scale}px; top:${module.rackIndex * (minimap.contentHeight / 8) * minimap.scale}px; width:${module.hp * rackUnitPx * minimap.scale}px; height:${(minimap.contentHeight / 8) * minimap.scale}px;`}
-              ></div>
-            {/each}
-
-            <div
-              class="minimap-viewport"
-              style={`left:${minimap.scrollLeft * minimap.scale}px; top:${minimap.scrollTop * minimap.scale}px; width:${minimap.viewportWidth * minimap.scale}px; height:${minimap.viewportHeight * minimap.scale}px;`}
-            ></div>
-          {/if}
-        </div>
-      </div>
-    </section>
+    <SelectionManager
+      {selectedId}
+      {selectedModuleIds}
+      {selectedCableId}
+      {selectedModule}
+      {selectedCable}
+      {selectedModuleCableCount}
+      onDuplicate={duplicateSelected}
+      onDisconnect={disconnectSelectedModule}
+      onCycleCableColor={cycleSelectedCableColor}
+      onRemoveCable={removeSelectedCable}
+      onOpenContextMenu={openSelectedContextMenu}
+    />
   </main>
 
-  <section class:open={paletteOpen} class="bottom-palette">
-    <div class="bottom-palette-body">
-      <div class="palette-header">
-        <div class="palette-header-title">Modules</div>
-        <label class="palette-filter-select">
-          <select bind:value={paletteType}>
-            <option value="all">All Types</option>
-            <option value="blank">Blank</option>
-            <option value="oscillator">Oscillator</option>
-            <option value="output">Output</option>
-            <option value="utility">Utility</option>
-          </select>
-        </label>
-        <label class="palette-search">
-          <input
-            type="text"
-            bind:value={paletteFilter}
-            placeholder="Keyword"
-            autocomplete="off"
-            spellcheck="false"
-          />
-        </label>
-        <button type="button" class="palette-close" aria-label="Close module palette" on:click={togglePalette}>
-          Close
-        </button>
-      </div>
-
-      <div class="palette-list">
-        {#each filteredModuleOrder as kind}
-          {@const module = moduleCatalog[kind]}
-          <button
-            type="button"
-            class="palette-item"
-            on:pointerdown={(event) => beginPaletteDrag(kind, event)}
-          >
-            <div class="palette-preview">
-              <ModuleRenderer kind={kind} hp={module.hp} interactive={false} />
-            </div>
-            <div class="palette-meta">
-              <span class="palette-name">{module.name}</span>
-              <span class="palette-submeta">{module.moduleType} · {module.hp}HP</span>
-            </div>
-          </button>
-        {/each}
-      </div>
-    </div>
-  </section>
+  <ModulePalette
+    {paletteOpen}
+    {paletteType}
+    {paletteFilter}
+    {filteredModuleOrder}
+    onToggle={togglePalette}
+    onBeginDrag={beginPaletteDrag}
+  />
 
   {#if !paletteOpen}
-    <button type="button" class="palette-fab" aria-label="Open module palette" on:click={togglePalette}>
+    <button
+      type="button"
+      class="palette-fab"
+      aria-label="Open module palette"
+      on:click={togglePalette}
+    >
       <span class="palette-fab-icon">⌕</span>
     </button>
   {/if}
@@ -690,11 +578,7 @@
       class="palette-drag-ghost"
       style={`left:${paletteGhost.x}px; top:${paletteGhost.y}px; width: calc(${moduleCatalog[paletteGhost.kind].hp} * var(--hp)); height: var(--panel-height);`}
     >
-      <ModuleRenderer
-        kind={paletteGhost.kind}
-        hp={moduleCatalog[paletteGhost.kind].hp}
-        interactive={false}
-      />
+      <ModuleRenderer kind={paletteGhost.kind} hp={moduleCatalog[paletteGhost.kind].hp} interactive={false} />
     </div>
   {/if}
 
@@ -704,9 +588,21 @@
         class={`module-menu-panel floating ${menuPosition.side === 'left' ? 'point-right' : 'point-left'}`}
         style={`left:${menuPosition.x}px; top:${menuPosition.y}px;`}
       >
-        <button type="button" on:click|stopPropagation={duplicateSelected}>Duplicate</button>
-        <button type="button" on:click|stopPropagation={removeSelected}>Delete</button>
+        {#if actionMenuKind === 'module'}
+          <button type="button" on:click={duplicateSelected}>Duplicate</button>
+          <button type="button" on:click={removeSelected}>Delete</button>
+        {:else if actionMenuKind === 'cable'}
+          <button type="button" on:click={cycleSelectedCableColor}>Color</button>
+          <button type="button" class="danger" on:click={removeSelectedCable}>Delete</button>
+        {/if}
       </div>
     </div>
   {/if}
 </div>
+
+<svelte:window
+  on:resize={updateMinimap}
+  on:scroll={updateMenuPosition}
+  on:pointermove={handleWindowPointerMove}
+  on:pointerup={handleWindowPointerUp}
+/>

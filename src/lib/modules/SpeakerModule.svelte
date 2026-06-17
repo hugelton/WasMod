@@ -1,4 +1,12 @@
+<script lang="ts">
+  import { autoBindModule } from '../actions/autoBindModule';
+
+  export let onParameterChange: (paramName: string, value: number) => void;
+  export let interactive = true;
+</script>
+
 <svg
+  use:autoBindModule={{ onParameterChange, disabled: !interactive }}
   class="module-svg"
   viewBox="0 0 20.32 128.5"
   xmlns="http://www.w3.org/2000/svg"
@@ -27,9 +35,26 @@
     OUT
   </text>
 
-  <path d="M5.2 40.5 L8.1 40.5 L11.4 35.6 L11.4 53.4 L8.1 48.5 L5.2 48.5 Z" fill="#16181c" />
-  <path d="M13.1 39.1 C15.6 41.4 15.6 47.6 13.1 49.9" fill="none" stroke="#2d3138" stroke-width="0.8" stroke-linecap="round" />
-  <path d="M15 35.8 C18.7 39.2 18.7 49.8 15 53.2" fill="none" stroke="#2d3138" stroke-width="0.8" stroke-linecap="round" />
+  <text x="10.16" y="22.4" fill="#4b4f56" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="2.35" font-weight="600" text-anchor="middle">
+    MASTER
+  </text>
+  <g
+    class="wm__fader"
+    transform="translate(10.16, 30)"
+    data-name="Master"
+    data-min="0"
+    data-max="1"
+    data-value="0.72"
+    data-step="0.01"
+    data-track-length="46"
+  >
+    <rect x="-1.35" y="0" width="2.7" height="46" fill="#111318" stroke="#30343a" stroke-width="0.45" rx="1.1" />
+    <line x1="0" y1="3.5" x2="0" y2="42.5" stroke="#454b53" stroke-width="0.5" stroke-linecap="round" />
+    <g class="fader-cap">
+      <rect x="-5.25" y="-2.1" width="10.5" height="4.2" fill="#20242a" stroke="#0e1014" stroke-width="0.5" rx="1.1" />
+      <line x1="-3.5" y1="0" x2="3.5" y2="0" stroke="#f4f5f7" stroke-width="0.55" stroke-linecap="round" />
+    </g>
+  </g>
 
   <text x="10.16" y="103.6" fill="#4b4f56" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="2.5" font-weight="600" text-anchor="middle">
     IN

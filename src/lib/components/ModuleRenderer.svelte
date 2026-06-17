@@ -16,7 +16,7 @@
 {:else if kind === 'junction4'}
   <JunctionModule />
 {:else if kind === 'speaker4'}
-  <SpeakerModule />
+  <SpeakerModule {interactive} {onParameterChange} />
 {:else}
   <BlankPanel {hp} />
 {/if}

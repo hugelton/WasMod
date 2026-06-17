@@ -43,14 +43,46 @@
     PITCH
   </text>
 
-  <g class="wm__knob" transform="translate(10.16, 32)" data-name="Pitch" data-min="-3" data-max="3" data-value="0">
+  <g
+    class="wm__knob"
+    transform="translate(10.16, 32)"
+    data-name="Pitch"
+    data-min="-3"
+    data-max="3"
+    data-value="0"
+    data-step="0.01"
+    data-reset-value="0"
+  >
     <use href="#sine-vco-knob" class="knob-graphic" />
+    <circle class="knob-hit" cx="0" cy="0" r="7.2" fill="transparent" />
   </g>
-  <rect x="4.9" y="39.8" width="10.52" height="4.3" fill="#111214" rx="0.9" />
-  <text class="param-display" data-target="Pitch" x="10.16" y="42.95" fill="#f08a45" font-family="monospace" font-size="2.5" text-anchor="middle">0.00</text>
 
-  <path d="M4.2 56.5c2.1-2.8 4-4.2 5.96-4.2 1.96 0 3.84 1.4 5.96 4.2" fill="none" stroke="#2a2d31" stroke-width="0.7" />
-  <path d="M4.2 61.3c2.1-2.8 4-4.2 5.96-4.2 1.96 0 3.84 1.4 5.96 4.2" fill="none" stroke="#2a2d31" stroke-width="0.7" />
+  <text x="10.16" y="54.6" fill="#4b4f56" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="2.2" font-weight="600" text-anchor="middle">
+    WAVE
+  </text>
+  <g
+    class="wm__switch"
+    transform="translate(10.16, 64.2)"
+    data-name="Waveform"
+    data-min="0"
+    data-max="2"
+    data-value="2"
+    data-step="1"
+    data-start="-5.2"
+    data-end="5.2"
+    data-orientation="vertical"
+  >
+    <rect x="-1.6" y="-6.6" width="3.2" height="13.2" fill="#101216" stroke="#30343a" stroke-width="0.45" rx="1.3" />
+    <line x1="0" y1="-4.8" x2="0" y2="4.8" stroke="#454b53" stroke-width="0.45" stroke-linecap="round" />
+    <circle cx="0" cy="-5.2" r="0.45" fill="#7a8088" />
+    <circle cx="0" cy="0" r="0.45" fill="#7a8088" />
+    <circle cx="0" cy="5.2" r="0.45" fill="#7a8088" />
+    <rect class="switch-thumb" x="-3.05" y="-1.65" width="6.1" height="3.3" fill="#f08a45" stroke="#111214" stroke-width="0.45" rx="0.8" />
+    <rect x="-5" y="-8" width="10" height="16" fill="transparent" />
+  </g>
+  <text x="2.7" y="59.55" fill="#131417" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="1.85" font-weight="700">SAW</text>
+  <text x="2.7" y="64.75" fill="#131417" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="1.65" font-weight="700">SQUARE</text>
+  <text x="2.7" y="69.95" fill="#131417" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="1.85" font-weight="700">SINE</text>
 
   <text x="10.16" y="81.5" fill="#4b4f56" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="2.5" font-weight="600" text-anchor="middle">
     CV

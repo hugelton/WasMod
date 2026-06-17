@@ -49,6 +49,8 @@ export interface WasmodEngineDiagnostics {
   ready: boolean;
   connectionCount: number;
   peak: number;
+  audioHealthy?: boolean;
+  audioError?: string;
 }
 
 export interface WasmodEngine {

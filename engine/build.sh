@@ -23,8 +23,8 @@ from pathlib import Path
 
 path = Path(os.environ["OUT_PATH"])
 text = path.read_text()
-old = 'HEAP64=new BigInt64Array(b);HEAPU64=new BigUint64Array(b);'
-new = old + 'Module["HEAP8"]=HEAP8;Module["HEAPU8"]=HEAPU8;Module["HEAPF32"]=HEAPF32;'
+old = 'HEAP64=new BigInt64Array(b);HEAPU64=new BigUint64Array(b)'
+new = old + ';Module["HEAP8"]=HEAP8;Module["HEAPU8"]=HEAPU8;Module["HEAPF32"]=HEAPF32'
 if old in text and 'Module["HEAPF32"]=HEAPF32' not in text:
     text = text.replace(old, new, 1)
     path.write_text(text)
