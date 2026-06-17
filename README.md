@@ -120,6 +120,30 @@ Build:
 npm run build
 ```
 
+## Deployment
+
+### GitHub Pages（自動デプロイ）
+
+リポジトリをGitHubにプッシュすると、自動的にGitHub Pagesにデプロイされます：
+
+1. リポジトリのSettings → Pagesで「Source」を「GitHub Actions」に設定
+2. `main`ブランチにプッシュするだけで自動デプロイ完了
+3. `https://<username>.github.io/WasMod/` でアクセス可能
+
+### Vercel（手動デプロイ）
+
+```bash
+npm run build
+vercel --prod
+```
+
+### Netlify（手動デプロイ）
+
+```bash
+npm run build
+netlify deploy --prod --dir=dist
+```
+
 ### WebAssembly Engine Scaffold
 
 If no WASM binary exists, the frontend falls back to a mock backend.
