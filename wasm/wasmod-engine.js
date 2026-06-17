@@ -58,16 +58,49 @@ export async function createWasmodWasmEngine() {
 
   const ensureBuffer = (frameCount) => {
     if (!core) {
-      return;
+      return false;
     }
     if (bufferFrames === frameCount && bufferPtr) {
-      return;
+      return true;
     }
     if (bufferPtr) {
       core._free(bufferPtr);
     }
     bufferFrames = frameCount;
     bufferPtr = core._malloc(frameCount * Float32Array.BYTES_PER_ELEMENT);
+    return Boolean(bufferPtr);
+  };
+
+  const outputView = (frameCount) => {
+    if (!core?.HEAPF32 || !bufferPtr) {
+      return null;
+    }
+    return core.HEAPF32.subarray(
+      bufferPtr / Float32Array.BYTES_PER_ELEMENT,
+      bufferPtr / Float32Array.BYTES_PER_ELEMENT + frameCount
+    );
+  };
+
+  const runAudioSmokeTest = (frameCount = 256) => {
+    if (!core || !engineHandle || !ensureBuffer(frameCount)) {
+      return { healthy: false, peak: 0, error: 'DSP buffer unavailable' };
+    }
+
+    core.ccall('wasmod_process_block', null, ['number', 'number', 'number'], [engineHandle, bufferPtr, frameCount]);
+    const mono = outputView(frameCount);
+    if (!mono) {
+      return { healthy: false, peak: 0, error: 'WASM audio memory unavailable' };
+    }
+
+    let peak = 0;
+    for (let i = 0; i < mono.length; i += 1) {
+      const abs = Math.abs(mono[i] * masterVolume);
+      if (abs > peak) {
+        peak = abs;
+      }
+    }
+
+    return { healthy: peak > 0.0001, peak, error: peak > 0.0001 ? '' : 'DSP output is silent' };
   };
 
   const destroyEngineHandle = () => {
@@ -186,13 +219,34 @@ export async function createWasmodWasmEngine() {
         return;
       }
 
-      ensureBuffer(frameCount);
+      if (!ensureBuffer(frameCount)) {
+        left.fill(0);
+        right.fill(0);
+        emitDiagnostics({
+          ready: true,
+          playing: false,
+          audioHealthy: false,
+          audioError: 'DSP buffer unavailable',
+          peak: 0
+        });
+        isPlaying = false;
+        return;
+      }
       core.ccall('wasmod_process_block', null, ['number', 'number', 'number'], [engineHandle, bufferPtr, frameCount]);
-
-      const mono = core.HEAPF32.subarray(
-        bufferPtr / Float32Array.BYTES_PER_ELEMENT,
-        bufferPtr / Float32Array.BYTES_PER_ELEMENT + frameCount
-      );
+      const mono = outputView(frameCount);
+      if (!mono) {
+        left.fill(0);
+        right.fill(0);
+        emitDiagnostics({
+          ready: true,
+          playing: false,
+          audioHealthy: false,
+          audioError: 'WASM audio memory unavailable',
+          peak: 0
+        });
+        isPlaying = false;
+        return;
+      }
 
       let peak = 0;
       for (let i = 0; i < frameCount; i += 1) {
@@ -212,7 +266,9 @@ export async function createWasmodWasmEngine() {
           ready: true,
           playing: isPlaying,
           connectionCount: getConnectionCount(),
-          peak
+          peak,
+          audioHealthy: peak > 0.0001,
+          audioError: ''
         });
         meterCounter = 0;
       }
@@ -277,13 +333,28 @@ export async function createWasmodWasmEngine() {
     async start() {
       await ensureAudio(true);
       replayState();
+      const smokeTest = runAudioSmokeTest();
+      if (!smokeTest.healthy) {
+        isPlaying = false;
+        emitDiagnostics({
+          ready: true,
+          playing: false,
+          connectionCount: getConnectionCount(),
+          peak: smokeTest.peak,
+          audioHealthy: false,
+          audioError: smokeTest.error
+        });
+        throw new Error(smokeTest.error);
+      }
       await audioContext.resume();
       isPlaying = true;
       emitDiagnostics({
         ready: true,
         playing: true,
         connectionCount: getConnectionCount(),
-        peak: 0
+        peak: smokeTest.peak,
+        audioHealthy: true,
+        audioError: ''
       });
     },
     async stop() {
